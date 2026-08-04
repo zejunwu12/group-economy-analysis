@@ -156,7 +156,79 @@ class ConfigLoader:
         if "next_template" in raw:
             cfg["next_template"] = raw["next_template"]
 
+        # 统一字体配置（可选）
+        if "font" in raw:
+            self._validate_font(raw["font"])
+            cfg["font"] = raw["font"]
+
         # 运行时配置
         cfg["runtime"] = raw["runtime"]
 
         return cfg
+
+    def _validate_font(self, font_config: dict) -> None:
+        """校验 font 配置节（可选）。"""
+        if not isinstance(font_config, dict):
+            raise ConfigError("font 必须是字典")
+
+        if "enabled" in font_config and not isinstance(
+            font_config["enabled"], bool
+        ):
+            raise ConfigError("font.enabled 必须是布尔值")
+
+        if "name" in font_config:
+            if not isinstance(font_config["name"], str) or not font_config[
+                "name"
+            ].strip():
+                raise ConfigError("font.name 必须是非空字符串")
+
+        if "size" in font_config:
+            size = font_config["size"]
+            if not isinstance(size, (int, float)) or isinstance(size, bool):
+                raise ConfigError("font.size 必须是数字")
+
+        if "bold" in font_config and not isinstance(
+            font_config["bold"], bool
+        ):
+            raise ConfigError("font.bold 必须是布尔值")
+
+        overrides = font_config.get("report_overrides")
+        if overrides is not None:
+            if not isinstance(overrides, dict):
+                raise ConfigError("font.report_overrides 必须是字典")
+            for report_id, override in overrides.items():
+                if not isinstance(report_id, int) or report_id not in range(
+                    1, 9
+                ):
+                    raise ConfigError(
+                        f"font.report_overrides 的键必须是 1~8 的整数，"
+                        f"实际: {report_id}"
+                    )
+                if not isinstance(override, dict):
+                    raise ConfigError(
+                        f"font.report_overrides.{report_id} 必须是字典"
+                    )
+                if "name" in override and (
+                    not isinstance(override["name"], str)
+                    or not override["name"].strip()
+                ):
+                    raise ConfigError(
+                        f"font.report_overrides.{report_id}.name "
+                        f"必须是非空字符串"
+                    )
+                if "size" in override:
+                    override_size = override["size"]
+                    if not isinstance(
+                        override_size, (int, float)
+                    ) or isinstance(override_size, bool):
+                        raise ConfigError(
+                            f"font.report_overrides.{report_id}.size "
+                            f"必须是数字"
+                        )
+                if "bold" in override and not isinstance(
+                    override.get("bold"), bool
+                ):
+                    raise ConfigError(
+                        f"font.report_overrides.{report_id}.bold "
+                        f"必须是布尔值"
+                    )

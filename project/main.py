@@ -10,6 +10,7 @@ import openpyxl
 
 from engine.config_loader import ConfigLoader
 from engine.comments import CommentCopyStats, clear_template_comments
+from engine.font import apply_uniform_font
 from engine.output import save_summary_workbook
 from engine.period import QuarterContext, QuarterError
 from engine.reader import (
@@ -188,6 +189,7 @@ def run(
             "保存文件并输出摘要",
             step_logger=logger,
         )
+        apply_uniform_font(workbook, config)
         output_path = save_summary_workbook(workbook, config)
         summary = log_processing_summary(
             config=config,

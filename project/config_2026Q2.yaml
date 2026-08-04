@@ -289,11 +289,33 @@ next_template:
       target_max_row: 24
 
 # -----------------------------------------------------------------------------
+# Unified font configuration (optional)
+#   enabled: whether to apply uniform font to data areas
+#   name / size / bold: global default settings
+#   report_overrides: per-report overrides (key = report number 1-8)
+# -----------------------------------------------------------------------------
+font:
+  enabled: true
+  name: "宋体·"
+  size: 11
+  bold: false
+  # 按报表覆盖（可选），仅需配置与全局默认不同的报表
+  report_overrides:
+    1: { name: "宋体", size: 16 }
+    # 2: { name: "宋体", size: 11 }
+    3: { name: "宋体", size: 16 }
+    # 4: { name: "宋体", size: 11 }
+    5: { name: "微软雅黑", size: 12 }
+    # 6: { name: "宋体", size: 11 }
+    # 7: { name: "宋体", size: 11 }
+    # 8: { name: "宋体", size: 11 }
+
+# -----------------------------------------------------------------------------
 # Runtime configuration
 # -----------------------------------------------------------------------------
 runtime:
   # template_path: "../经济分析汇总表（空）.xlsx"
-  template_path: "../（写上企业名称）2026年{quarter_label}季度资产运营情况表（空）.xlsx"
+  template_path: "../（写上企业名称）{quarter_label}季度资产运营情况表（空）.xlsx"
   data_dir: "../权属数据/表格/"
   output_dir: "output/"
   output_filename: "文旅集团{quarter_label}资产运营情况表（汇总）.xlsx"
