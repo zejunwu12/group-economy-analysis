@@ -34,6 +34,34 @@ class NextTemplateError(Exception):
 
 
 @dataclass(frozen=True)
+class NextTemplateConsistencyIssue:
+    """One source-workbook difference that requires manual review."""
+
+    report_key: str
+    sheet_name: str
+    category: str
+    detail: str
+
+    def format(self) -> str:
+        report_label = self.report_key.replace("report", "报表")
+        return (
+            f"[配置一致性检查] {report_label}｜{self.sheet_name}｜"
+            f"{self.category}：{self.detail}"
+        )
+
+
+class NextTemplateConsistencyError(NextTemplateError):
+    """The source workbook and template configuration need manual review."""
+
+    def __init__(self, issues: Iterable[NextTemplateConsistencyIssue]):
+        self.issues = tuple(issues)
+        super().__init__(
+            f"源汇总表与配置不一致，共检测到 {len(self.issues)} 项问题；"
+            "未生成下季度模板，请人工核对配置和源表后重试"
+        )
+
+
+@dataclass(frozen=True)
 class NextTemplateResult:
     """Summary of one successful next-template generation."""
 
@@ -91,6 +119,8 @@ def generate_next_template(
                 f"未在配置的标题区域识别到源季度 {current_period.label} "
                 f"或截止日期 {current_period.end_date}；请核对 --quarter 与源文件"
             )
+
+        _validate_source_config_consistency(formula_workbook, config, rules)
 
         header_replacements = _replace_period_headers(
             formula_workbook,
@@ -203,6 +233,352 @@ def _validate_report_sheets(
             raise NextTemplateError(f"源汇总表缺少工作表: {sheet_name}")
         if sheet_name not in values_workbook.sheetnames:
             raise NextTemplateError(f"源汇总表数值视图缺少工作表: {sheet_name}")
+
+
+def _validate_source_config_consistency(
+    workbook: Workbook,
+    config: dict,
+    rules: dict,
+) -> None:
+    """Detect source/config drift before the workbook is modified."""
+    issues: list[NextTemplateConsistencyIssue] = []
+    checked = 0
+    for report_key, rule in rules["reports"].items():
+        report_config = config["reports"][report_key]
+        worksheet = workbook[report_config["sheet_name"]]
+        kind = rule.get("kind")
+        if kind == "fixed":
+            checked += 1
+            issues.extend(
+                _detect_mapped_region_issues(
+                    report_key,
+                    worksheet,
+                    report_config["row_mapping"],
+                    report_config["data_start_row"],
+                    report_config["data_end_row"],
+                    report_config["b_col"],
+                    configured_total_row=report_config.get("total_row"),
+                    total_columns=(
+                        report_config.get("a_col", "A"),
+                        report_config["b_col"],
+                    ),
+                )
+            )
+        elif kind == "double_detail":
+            checked += 1
+            issues.extend(
+                _detect_double_detail_consistency_issues(
+                    report_key,
+                    worksheet,
+                    report_config,
+                )
+            )
+        elif kind == "park":
+            checked += 1
+            issues.extend(
+                _detect_park_consistency_issues(
+                    report_key,
+                    worksheet,
+                    report_config,
+                )
+            )
+
+    if not issues:
+        logger.info("源汇总表与配置一致性检查通过: 共检查 %s 个报表", checked)
+        return
+
+    logger.warning("源汇总表与配置不一致，需人工核对以下问题:")
+    for issue in issues:
+        logger.warning("  %s", issue.format())
+    raise NextTemplateConsistencyError(issues)
+
+
+def _detect_mapped_region_issues(
+    report_key: str,
+    worksheet: Worksheet,
+    row_mapping: dict,
+    data_start_row: int,
+    configured_data_end_row: int,
+    unit_column: str,
+    *,
+    configured_total_row: int | None,
+    total_columns: tuple[str, ...],
+    context: str | None = None,
+    search_end_row: int | None = None,
+) -> list[NextTemplateConsistencyIssue]:
+    issues: list[NextTemplateConsistencyIssue] = []
+    actual_total_row = _find_first_total_row(
+        worksheet,
+        data_start_row,
+        total_columns,
+        search_end_row,
+    )
+    context_prefix = f"{context}，" if context else ""
+
+    if isinstance(configured_total_row, int):
+        if actual_total_row is None:
+            issues.append(
+                _consistency_issue(
+                    report_key,
+                    worksheet,
+                    "合计行缺失",
+                    f"{context_prefix}配置第{configured_total_row}行，来源表未找到合计标识",
+                )
+            )
+        elif actual_total_row != configured_total_row:
+            issues.append(
+                _consistency_issue(
+                    report_key,
+                    worksheet,
+                    "合计行变化",
+                    f"{context_prefix}配置第{configured_total_row}行，实际第{actual_total_row}行",
+                )
+            )
+    elif actual_total_row is not None:
+        issues.append(
+            _consistency_issue(
+                report_key,
+                worksheet,
+                "出现未配置合计行",
+                f"{context_prefix}实际第{actual_total_row}行存在合计标识",
+            )
+        )
+
+    scan_end_row = (
+        actual_total_row - 1
+        if actual_total_row is not None
+        else search_end_row or configured_data_end_row
+    )
+    actual_entries = _mapped_entries(
+        worksheet,
+        data_start_row,
+        scan_end_row,
+        unit_column,
+    )
+    actual_end_row = max(
+        (row for row, _, _ in actual_entries),
+        default=data_start_row - 1,
+    )
+    if actual_end_row != configured_data_end_row:
+        issues.append(
+            _consistency_issue(
+                report_key,
+                worksheet,
+                "数据区结束行变化",
+                f"{context_prefix}配置第{configured_data_end_row}行，实际第{actual_end_row}行",
+            )
+        )
+
+    expected_by_name: dict[str, list[tuple[int, str]]] = {}
+    for row, name in sorted(row_mapping.items()):
+        normalized = _normalize_consistency_name(name)
+        expected_by_name.setdefault(normalized, []).append((row, str(name)))
+
+    actual_by_name: dict[str, list[tuple[int, str]]] = {}
+    for row, raw_name, normalized in actual_entries:
+        actual_by_name.setdefault(normalized, []).append((row, raw_name))
+
+    for normalized, entries in actual_by_name.items():
+        if len(entries) > 1:
+            detail = "、".join(f"第{row}行“{name}”" for row, name in entries)
+            issues.append(
+                _consistency_issue(
+                    report_key,
+                    worksheet,
+                    "重复单位",
+                    f"{context_prefix}{detail}",
+                )
+            )
+        if normalized not in expected_by_name:
+            for row, name in entries:
+                issues.append(
+                    _consistency_issue(
+                        report_key,
+                        worksheet,
+                        "新增单位",
+                        f"{context_prefix}来源第{row}行“{name}”未出现在 row_mapping",
+                    )
+                )
+
+    for normalized, expected_entries in expected_by_name.items():
+        actual_matches = actual_by_name.get(normalized, [])
+        if not actual_matches:
+            for row, name in expected_entries:
+                issues.append(
+                    _consistency_issue(
+                        report_key,
+                        worksheet,
+                        "配置单位缺失",
+                        f"{context_prefix}配置第{row}行“{name}”未在来源数据区找到",
+                    )
+                )
+            continue
+        if len(expected_entries) == 1 and len(actual_matches) == 1:
+            expected_row, expected_name = expected_entries[0]
+            actual_row, _ = actual_matches[0]
+            if actual_row != expected_row:
+                issues.append(
+                    _consistency_issue(
+                        report_key,
+                        worksheet,
+                        "单位行位移",
+                        f"{context_prefix}“{expected_name}”配置第{expected_row}行，实际第{actual_row}行",
+                    )
+                )
+    return issues
+
+
+def _detect_double_detail_consistency_issues(
+    report_key: str,
+    worksheet: Worksheet,
+    report_config: dict,
+) -> list[NextTemplateConsistencyIssue]:
+    totals: dict[str, int | None] = {}
+    issues: list[NextTemplateConsistencyIssue] = []
+    for side_name in ("left", "right"):
+        side = report_config[side_name]
+        total_row = _find_last_total_row(
+            worksheet,
+            side["data_start_row"],
+            side["cols"][0],
+        )
+        totals[side_name] = total_row
+        if total_row is None:
+            issues.append(
+                _consistency_issue(
+                    report_key,
+                    worksheet,
+                    "合计行缺失",
+                    f"{side_name} 数据区未找到合计标识",
+                )
+            )
+    if all(total is not None for total in totals.values()) and (
+        totals["left"] != totals["right"]
+    ):
+        issues.append(
+            _consistency_issue(
+                report_key,
+                worksheet,
+                "左右合计行不一致",
+                f"左侧第{totals['left']}行，右侧第{totals['right']}行",
+            )
+        )
+    return issues
+
+
+def _detect_park_consistency_issues(
+    report_key: str,
+    worksheet: Worksheet,
+    report_config: dict,
+) -> list[NextTemplateConsistencyIssue]:
+    issues: list[NextTemplateConsistencyIssue] = []
+    sub_tables = report_config["sub_tables"]
+    for index, sub_table in enumerate(sub_tables):
+        next_header_row = (
+            sub_tables[index + 1]["header_row"]
+            if index + 1 < len(sub_tables)
+            else None
+        )
+        search_end_row = (
+            next_header_row - 2
+            if next_header_row is not None
+            else worksheet.max_row
+        )
+        issues.extend(
+            _detect_mapped_region_issues(
+                report_key,
+                worksheet,
+                sub_table["row_mapping"],
+                sub_table["data_start_row"],
+                sub_table["data_end_row"],
+                "A",
+                configured_total_row=sub_table.get("total_row"),
+                total_columns=("A",),
+                context=f"子表“{sub_table['name']}”",
+                search_end_row=search_end_row,
+            )
+        )
+    return issues
+
+
+def _mapped_entries(
+    worksheet: Worksheet,
+    start_row: int,
+    end_row: int,
+    unit_column: str,
+) -> list[tuple[int, str, str]]:
+    entries: list[tuple[int, str, str]] = []
+    for row in range(start_row, end_row + 1):
+        value = _cell_or_merged_value(worksheet, f"{unit_column}{row}")
+        normalized = _normalize_consistency_name(value)
+        if normalized and not _is_total_label(value):
+            entries.append((row, str(value).strip(), normalized))
+    return entries
+
+
+def _find_first_total_row(
+    worksheet: Worksheet,
+    start_row: int,
+    columns: tuple[str, ...],
+    end_row: int | None = None,
+) -> int | None:
+    final_row = min(end_row or worksheet.max_row, worksheet.max_row)
+    for row in range(start_row, final_row + 1):
+        if any(
+            _is_total_label(_cell_or_merged_value(worksheet, f"{column}{row}"))
+            for column in columns
+        ):
+            return row
+    return None
+
+
+def _find_last_total_row(
+    worksheet: Worksheet,
+    start_row: int,
+    column: str,
+) -> int | None:
+    for row in range(worksheet.max_row, start_row - 1, -1):
+        if _is_total_label(_cell_or_merged_value(worksheet, f"{column}{row}")):
+            return row
+    return None
+
+
+def _cell_or_merged_value(worksheet: Worksheet, cell_ref: str) -> object | None:
+    cell = worksheet[cell_ref]
+    if cell.value is not None:
+        return cell.value
+    for merged_range in worksheet.merged_cells.ranges:
+        if cell.coordinate in merged_range:
+            return worksheet.cell(
+                row=merged_range.min_row,
+                column=merged_range.min_col,
+            ).value
+    return None
+
+
+def _normalize_consistency_name(value: object | None) -> str:
+    return "" if value is None else "".join(str(value).split())
+
+
+def _is_total_label(value: object | None) -> bool:
+    normalized = _normalize_consistency_name(value)
+    return normalized in _TOTAL_LABELS or any(
+        normalized.endswith(label) for label in _TOTAL_LABELS
+    )
+
+
+def _consistency_issue(
+    report_key: str,
+    worksheet: Worksheet,
+    category: str,
+    detail: str,
+) -> NextTemplateConsistencyIssue:
+    return NextTemplateConsistencyIssue(
+        report_key=report_key,
+        sheet_name=worksheet.title,
+        category=category,
+        detail=detail,
+    )
 
 
 def _process_report(

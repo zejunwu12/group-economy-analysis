@@ -10,7 +10,11 @@ from openpyxl.comments import Comment
 from openpyxl.styles import Color, PatternFill
 
 from engine.config_loader import ConfigLoader
-from engine.next_template import NextTemplateError, generate_next_template
+from engine.next_template import (
+    NextTemplateConsistencyError,
+    NextTemplateError,
+    generate_next_template,
+)
 from engine.period import QuarterContext
 
 
@@ -113,6 +117,22 @@ class NextTemplateGenerationTests(unittest.TestCase):
         report8["A158"] = 154
         report8["B158"] = "扩展行资产"
 
+        for report_id in (1, 2, 3, 4, 6):
+            report_config = config["reports"][f"report{report_id}"]
+            worksheet = workbook[report_config["sheet_name"]]
+            for row, unit_name in report_config["row_mapping"].items():
+                worksheet[f"{report_config['b_col']}{row}"] = unit_name
+            worksheet[
+                f"{report_config.get('a_col', 'A')}{report_config['total_row']}"
+            ] = "合计"
+
+        report7_config = config["reports"]["report7"]
+        for sub_table in report7_config["sub_tables"]:
+            for row, park_name in sub_table["row_mapping"].items():
+                report7[f"A{row}"] = park_name
+            if isinstance(sub_table.get("total_row"), int):
+                report7[f"A{sub_table['total_row']}"] = "合计"
+
         workbook.save(path)
         workbook.close()
 
@@ -175,7 +195,10 @@ class NextTemplateGenerationTests(unittest.TestCase):
                 self.assertIn("F20:H20", map(str, report5.merged_cells.ranges))
 
                 report7 = target[config["reports"]["report7"]["sheet_name"]]
-                self.assertEqual(report7["A4"].value, "测试园区")
+                self.assertEqual(
+                    report7["A4"].value,
+                    config["reports"]["report7"]["sub_tables"][0]["row_mapping"][4],
+                )
                 self.assertIsNone(report7["D4"].value)
                 self.assertEqual(report7["N4"].value, "=J4/I4")
 
@@ -207,6 +230,47 @@ class NextTemplateGenerationTests(unittest.TestCase):
             finally:
                 source.close()
                 target.close()
+
+    def test_rejects_source_config_drift_before_writing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config = self._config(directory)
+            source_path = Path(directory) / "final.xlsx"
+            self._source_workbook(source_path, config)
+
+            workbook = load_workbook(source_path, data_only=False)
+            report1 = workbook[config["reports"]["report1"]["sheet_name"]]
+            report1.insert_rows(12)
+            report1["A12"] = "酒管集团"
+            report1["B12"] = "泉旅酒管"
+            workbook.save(source_path)
+            workbook.close()
+
+            with self.assertLogs("engine.next_template", level="WARNING") as captured:
+                with self.assertRaises(NextTemplateConsistencyError) as caught:
+                    generate_next_template(
+                        source_path,
+                        QuarterContext.parse("2026Q2"),
+                        config,
+                    )
+
+            warning_text = "\n".join(captured.output)
+            self.assertIn("新增单位", warning_text)
+            self.assertIn("泉旅酒管", warning_text)
+            self.assertIn("单位行位移", warning_text)
+            self.assertIn("合计行变化", warning_text)
+            self.assertIn("数据区结束行变化", warning_text)
+            self.assertGreaterEqual(len(caught.exception.issues), 5)
+
+            output_dir = Path(directory) / "output"
+            self.assertFalse(output_dir.exists())
+
+            unchanged = load_workbook(source_path, data_only=False)
+            try:
+                self.assertIsNotNone(
+                    unchanged[config["reports"]["report1"]["sheet_name"]]["I7"].comment
+                )
+            finally:
+                unchanged.close()
 
     def test_rejects_source_when_quarter_marker_does_not_match(self):
         with tempfile.TemporaryDirectory() as directory:

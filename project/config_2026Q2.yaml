@@ -1,0 +1,304 @@
+# Configuration for Group Economic Analysis Automation
+#
+# This file contains all mappings and parameters.
+# Update this file when template structure, ownership mappings, or paths change.
+# The reporting quarter is supplied at runtime with --quarter YYYYQn.
+
+# -----------------------------------------------------------------------------
+# Ownership file mapping
+#   key   = 权属标识（用于配置引用）
+#   file  = 数据文件名（精确匹配，null 表示无独立数据文件）
+#   units = 该文件中 B 列实际出现的单位名称（归一化后，用于匹配查找）
+# -----------------------------------------------------------------------------
+ownership_files:
+  集团本部:
+    file: "文旅集团本部.xlsx"
+    units: ["文旅集团本部"]
+  中侨集团:
+    file: "中侨集团.xlsx"
+    units: ["中侨集团", "侨乡文体公司"]
+  古城集团:
+    file: "古城集团.xlsx"
+    units: ["古城集团"]
+  商业集团:
+    file: "商业集团.xlsx"
+    units: ["商业集团"]
+  土地公司:
+    file: "土地公司.xlsx"
+    units: ["土地公司"]
+  旅游集团:
+    file: "旅游集团.xlsx"
+    units: ["清源山旅投公司", "国旅公司"]
+  酒管集团:
+    file: "酒管集团.xlsx"
+    units: ["泉旅酒馆","开元盛达", "泉州宾馆"]
+
+# -----------------------------------------------------------------------------
+# Report configurations
+# -----------------------------------------------------------------------------
+reports:
+
+  # Report 1: 资产总体情况表
+  report1:
+    sheet_name: "报表1 资产总体情况表"
+    data_start_row: 7
+    data_end_row: 17
+    total_row: 18
+    a_col: "A"
+    b_col: "B"
+    data_start_col: "C"
+    data_end_col: "AG"
+    area_columns: ["C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P", "Q", "R", "S", "T", "U", "V", "W", "X", "Y", "Z", "AA", "AB", "AC", "AD", "AE", "AF"]
+    text_columns: ["AG"]
+    difference_check_columns: ["C", "E"]
+    row_mapping:
+      7: "文旅集团本部"
+      8: "中侨集团"
+      9: "侨乡文体公司"
+      10: "土地公司"
+      11: "商业集团"
+      12: "泉旅酒管"
+      13: "泉州宾馆"
+      14: "开元盛达"
+      15: "清源山旅投公司"
+      16: "国旅公司"
+      17: "古城集团"
+
+  # Report 2: 按建筑类型区分总资产
+  report2:
+    sheet_name: "报表2 按建筑类型区分总资产"
+    data_start_row: 4
+    data_end_row: 14
+    total_row: 15
+    a_col: "A"
+    b_col: "B"
+    data_start_col: "C"
+    data_end_col: "P"
+    area_columns: ["C", "D", "E", "F", "G", "H", "I", "J", "K", "L", "M", "N", "O", "P"]
+    row_mapping:
+      4: "集团本部"
+      5: "中侨集团"
+      6: "侨乡文体"
+      7: "土地公司"
+      8: "商业集团"
+      9: "泉旅酒管"
+      10: "开元盛达"
+      11: "泉州宾馆"
+      12: "清源旅投"
+      13: "国旅公司"
+      14: "古城集团"
+
+  # Report 3: 资产运营情况表 (special arrangement: 侨乡文体 after 古城集团)
+  report3:
+    sheet_name: "报表3 资产运营情况表"
+    data_start_row: 5
+    data_end_row: 14
+    total_row: 15
+    a_col: "A"
+    b_col: "B"
+    data_start_col: "C"
+    data_end_col: "X"
+    area_columns: ["C", "D", "E", "O", "P", "T"]
+    # 公式由模板维护，脚本只识别并保留这些列。
+    formula_columns: ["L", "M"]
+    formula_number_format: "0.00%"
+    text_columns: ["N", "X"]
+    difference_check_columns: ["D", "G", "J"]
+    row_mapping:
+      5: "文旅集团本部"
+      6: "中侨集团"
+      7: "土地公司"
+      8: "商业集团"
+      9: "开元盛达"
+      10: "福建省泉州宾馆有限责任公司"
+      11: "清源山旅投公司"
+      12: "国旅公司"
+      13: "古城集团"
+      14: "侨乡文体公司"
+
+  # Report 4: 各企业出租率
+  report4:
+    sheet_name: "报表4 各企业出租率"
+    data_start_row: 4
+    data_end_row: 14
+    total_row: 15
+    a_col: "A"
+    b_col: "B"
+    data_start_col: "C"
+    data_end_col: "K"
+    area_columns: ["C", "D", "E", "F", "G"]
+    # 公式由模板维护，脚本只识别并保留这些列。
+    formula_columns: ["H", "I", "J"]
+    formula_number_format: "0.00%"
+    text_columns: ["K"]
+    row_mapping:
+      4: "集团本部"
+      5: "中侨集团"
+      6: "侨乡文体"
+      7: "土地公司"
+      8: "商业集团"
+      9: "泉旅酒管"
+      10: "开元盛达"
+      11: "泉州宾馆"
+      12: "清源旅投"
+      13: "国旅公司"
+      14: "古城集团"
+
+  # Report 5: 资产改造情况表 (double-column, append mode)
+  report5:
+    sheet_name: "报表5 资产改造情况表"
+    area_columns: ["D", "I"]
+    left:
+      data_start_row: 5
+      data_end_row: 63
+      total_row: 64
+      cols: ["A", "B", "C", "D", "E"]
+    right:
+      data_start_row: 5
+      data_end_row: 63
+      total_row: 64
+      cols: ["F", "G", "H", "I", "J"]
+
+  # Report 6: 国资委经济运行情况表
+  report6:
+    sheet_name: "报表6 国资委经济运行情况表"
+    data_start_row: 6
+    data_end_row: 16
+    total_row: 17
+    a_col: "A"
+    b_col: "B"
+    data_start_col: "C"
+    data_end_col: "K"
+    area_columns: ["C", "D", "E", "F", "G", "H", "I", "J"]
+    row_mapping:
+      6: "集团本部"
+      7: "中侨集团"
+      8: "侨乡文体"
+      9: "土地公司"
+      10: "商业集团"
+      11: "泉旅酒管"
+      12: "开元盛达"
+      13: "泉州宾馆"
+      14: "清源旅投"
+      15: "国旅公司"
+      16: "古城集团"
+
+  # Report 7: 资产运营情况表（园区）- Q2 实际有 4 个子表
+  report7:
+    sheet_name: "报表7 资产运营情况表（园区）"
+    data_start_col: "A"
+    data_end_col: "V"
+    area_columns: ["D", "E", "F", "G", "H", "I", "J", "K"]
+    # 公式由模板维护；其他列即使来源使用公式，也只写入其已保存的计算值。
+    formula_columns: ["N", "O", "R", "T"]
+    text_columns: ["B", "C", "U", "V"]
+    sub_tables:
+      - name: "侨乡文体公司所管理园区"
+        header_row: 3
+        data_start_row: 4
+        data_end_row: 7
+        total_row: 8
+        row_mapping:
+          4: "东亚之窗文化创意产业园"
+          5: "源和1916创意产业园"
+          6: "古城新门文旅街区"
+          7: "偶遇世界"
+      - name: "开元盛达公司所管理侨乡体育中心"
+        header_row: 12
+        data_start_row: 13
+        data_end_row: 13
+        total_row: null
+        row_mapping:
+          13: "泉州侨乡体育中心"
+      - name: "德化瓷都文投公司所管理红旗坊·文旅产业园"
+        header_row: 17
+        data_start_row: 18
+        data_end_row: 18
+        total_row: null
+        row_mapping:
+          18: "红旗坊·文旅产业园"
+      - name: "酒管集团所管理园区"
+        header_row: 22
+        data_start_row: 23
+        data_end_row: 25
+        total_row: 26
+        row_mapping:
+          23: "大寺逅精品酒店"
+          24: "西街行舍"
+          25: "巷遇酒店"
+
+  # Report 8: 非自有资产情况 (detail, append mode)
+  report8:
+    sheet_name: "报表8 非自有资产情况"
+    data_start_row: 5
+    data_end_row: 155
+    cols: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]
+    area_columns: ["G"]
+
+# -----------------------------------------------------------------------------
+# Next-quarter template generation
+#   clear_columns: clear data cells in configured data rows
+#   preserve_formula_columns: preserve formulas in these columns; non-formula
+#     values in the same columns are cleared
+#   roll_columns: source current-period column -> next-template comparison column
+# -----------------------------------------------------------------------------
+next_template:
+  # output_filename: "文旅集团{quarter_label}资产运营情况表（模板）.xlsx"
+  output_filename: "（写上企业名称）2026年{quarter_label}季度资产运营情况表（空）.xlsx"
+  # 清除数据区内直接涂色形成的遗留填充；模板主题色保持不变。
+  clear_manual_fills: true
+  reports:
+    report1:
+      kind: "fixed"
+      clear_columns: ["D:AG"]
+      preserve_formula_columns: ["G:H"]
+      roll_columns:
+        D: E
+    report2:
+      kind: "fixed"
+      clear_columns: ["C:P"]
+      preserve_formula_columns: []
+      roll_columns: {}
+    report3:
+      kind: "fixed"
+      clear_columns: ["C:X"]
+      preserve_formula_columns: ["L:M"]
+      roll_columns:
+        C: D
+        F: G
+        I: J
+    report4:
+      kind: "fixed"
+      clear_columns: ["C:K"]
+      preserve_formula_columns: ["H:J"]
+      roll_columns: {}
+    report5:
+      kind: "double_detail"
+      target_max_row: 25
+    report6:
+      kind: "fixed"
+      clear_columns: ["C:K"]
+      preserve_formula_columns: []
+      roll_columns: {}
+    report7:
+      kind: "park"
+      clear_columns: ["D:V"]
+      preserve_formula_columns: ["N:O", "R", "T"]
+    report8:
+      kind: "detail"
+      target_max_row: 24
+
+# -----------------------------------------------------------------------------
+# Runtime configuration
+# -----------------------------------------------------------------------------
+runtime:
+  # template_path: "../经济分析汇总表（空）.xlsx"
+  template_path: "../（写上企业名称）2026年{quarter_label}季度资产运营情况表（空）.xlsx"
+  data_dir: "../权属数据/表格/"
+  output_dir: "output/"
+  output_filename: "文旅集团{quarter_label}资产运营情况表（汇总）.xlsx"
+  reports_to_run: [1, 2, 3, 4, 5, 6, 7, 8]
+  # output_filename: "FP-6.3_选择性执行验证.xlsx"
+  # reports_to_run: [1, 4]
+  enable_validation: true
+  log_level: "INFO"

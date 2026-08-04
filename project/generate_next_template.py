@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 from engine.config_loader import ConfigLoader
-from engine.next_template import generate_next_template
+from engine.next_template import NextTemplateConsistencyError, generate_next_template
 from engine.period import QuarterContext, QuarterError
 from logger import setup_logger
 
@@ -97,6 +97,9 @@ def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
     try:
         result = run(args.quarter, args.source, config_path=args.config)
+    except NextTemplateConsistencyError as exc:
+        logging.getLogger(__name__).error("下季度模板生成停止: %s", exc)
+        return 1
     except Exception:
         logging.getLogger(__name__).exception("下季度模板生成失败")
         return 1
