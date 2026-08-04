@@ -1124,7 +1124,7 @@ def _count_source_period_markers(
     for report_key in rules["reports"]:
         report_config = config["reports"][report_key]
         worksheet = workbook[report_config["sheet_name"]]
-        for row in _header_rows(report_key, report_config):
+        for row in _period_text_rows(report_key, report_config, worksheet):
             for cell in worksheet[row]:
                 if isinstance(cell.value, str) and any(
                     marker in cell.value for marker in markers
@@ -1151,9 +1151,9 @@ def _replace_period_headers(
     for report_key in rules["reports"]:
         report_config = config["reports"][report_key]
         worksheet = workbook[report_config["sheet_name"]]
-        for row in _header_rows(report_key, report_config):
+        for row in _period_text_rows(report_key, report_config, worksheet):
             for cell in worksheet[row]:
-                if not isinstance(cell.value, str):
+                if not isinstance(cell.value, str) or cell.data_type == "f":
                     continue
                 updated, count = pattern.subn(
                     lambda match: replacements[match.group(0)],
@@ -1203,7 +1203,11 @@ def _period_replacements(
     }
 
 
-def _header_rows(report_key: str, report_config: dict) -> set[int]:
+def _period_text_rows(
+    report_key: str,
+    report_config: dict,
+    worksheet: Worksheet,
+) -> set[int]:
     if report_key == "report5":
         return set(range(1, report_config["left"]["data_start_row"]))
     if report_key == "report7":
@@ -1214,7 +1218,13 @@ def _header_rows(report_key: str, report_config: dict) -> set[int]:
         return rows
     if report_key == "report8":
         return set(range(1, report_config["data_start_row"]))
-    return set(range(1, report_config["data_start_row"]))
+    data_rows = set(
+        range(
+            report_config["data_start_row"],
+            report_config["data_end_row"] + 1,
+        )
+    )
+    return set(range(1, worksheet.max_row + 1)) - data_rows
 
 
 def _capture_structure(workbook: Workbook) -> dict[str, tuple[str, ...]]:

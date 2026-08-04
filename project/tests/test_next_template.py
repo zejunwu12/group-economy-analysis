@@ -49,6 +49,8 @@ class NextTemplateGenerationTests(unittest.TestCase):
         report1["I7"] = 90
         report1["I7"].comment = Comment("本期说明", "填报人")
         report1["C17"] = "=SUM(C7:C16)"
+        report1["A20"] = "2026年第二季度比2026年第一季度的差异（环比）"
+        report1["A21"] = "2026年第二季度同比2025年第二季度的差异（同比）"
         for cell in report1[16][:33]:
             cell.fill = PatternFill(fill_type="solid", fgColor="FFFF00")
 
@@ -169,6 +171,14 @@ class NextTemplateGenerationTests(unittest.TestCase):
                 )
                 self.assertIn("A3:B3", map(str, report1.merged_cells.ranges))
                 self.assertIn("A8:A9", map(str, report1.merged_cells.ranges))
+                self.assertEqual(
+                    report1["A20"].value,
+                    "2026年第三季度比2026年第二季度的差异（环比）",
+                )
+                self.assertEqual(
+                    report1["A21"].value,
+                    "2026年第三季度同比2025年第三季度的差异（同比）",
+                )
 
                 report2 = target[config["reports"]["report2"]["sheet_name"]]
                 self.assertEqual(report2["C4"].fill.fill_type, "solid")
