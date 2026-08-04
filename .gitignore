@@ -15,3 +15,6 @@ __pycache__/
 
 # Codex
 .codex/
+
+# data
+权属数据/
