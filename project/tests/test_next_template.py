@@ -20,7 +20,7 @@ from engine.period import QuarterContext
 
 class NextTemplateGenerationTests(unittest.TestCase):
     def _config(self, directory: str) -> dict:
-        config_path = Path(__file__).resolve().parents[1] / "config.yaml"
+        config_path = Path(__file__).resolve().parents[1] / "config_2026Q1.yaml"
         config = ConfigLoader(str(config_path)).load()
         config["runtime"]["_config_dir"] = directory
         config["runtime"]["output_dir"] = "output"
@@ -86,12 +86,14 @@ class NextTemplateGenerationTests(unittest.TestCase):
         report5["B5"] = "拟改造项目"
         report5["F5"] = 1
         report5["G5"] = "正在改造项目"
-        report5["A70"] = "合计"
-        report5["D70"] = "=SUM(D5:D69)"
-        report5["F70"] = "合计"
-        report5["I70"] = "=SUM(I5:I69)"
-        report5.merge_cells("A70:C70")
-        report5.merge_cells("F70:H70")
+        report5_total_row = config["reports"]["report5"]["left"]["total_row"]
+        report5_data_end_row = report5_total_row - 1
+        report5[f"A{report5_total_row}"] = "合计"
+        report5[f"D{report5_total_row}"] = f"=SUM(D5:D{report5_data_end_row})"
+        report5[f"F{report5_total_row}"] = "合计"
+        report5[f"I{report5_total_row}"] = f"=SUM(I5:I{report5_data_end_row})"
+        report5.merge_cells(f"A{report5_total_row}:C{report5_total_row}")
+        report5.merge_cells(f"F{report5_total_row}:H{report5_total_row}")
 
         report6 = workbook[config["reports"]["report6"]["sheet_name"]]
         report6["C6"] = 10
@@ -112,10 +114,17 @@ class NextTemplateGenerationTests(unittest.TestCase):
         report8["B5"] = "非自有资产"
         report8["K12"] = "跨行说明"
         report8.merge_cells("K12:K14")
-        report8["K15"] = "跨越缩行边界"
-        report8.merge_cells("K15:K21")
-        report8["K22"] = "随删除行移除"
-        report8.merge_cells("K22:K23")
+        report8_target_row = config["next_template"]["reports"]["report8"][
+            "target_max_row"
+        ]
+        crossing_start = report8_target_row - 5
+        report8[f"K{crossing_start}"] = "跨越缩行边界"
+        report8.merge_cells(
+            f"K{crossing_start}:K{report8_target_row + 1}"
+        )
+        deleted_start = report8_target_row + 2
+        report8[f"K{deleted_start}"] = "随删除行移除"
+        report8.merge_cells(f"K{deleted_start}:K{deleted_start + 1}")
         report8["A158"] = 154
         report8["B158"] = "扩展行资产"
 
@@ -194,15 +203,34 @@ class NextTemplateGenerationTests(unittest.TestCase):
                 self.assertIn("D14:X14", map(str, report3.merged_cells.ranges))
 
                 report5 = target[config["reports"]["report5"]["sheet_name"]]
-                self.assertEqual(report5.max_row, 20)
+                report5_target_row = config["next_template"]["reports"]["report5"][
+                    "target_max_row"
+                ]
+                report5_data_end_row = report5_target_row - 1
+                self.assertEqual(report5.max_row, report5_target_row)
                 self.assertEqual(report5["A5"].value, 1)
                 self.assertIsNone(report5["B5"].value)
-                self.assertEqual(report5["A19"].value, 15)
-                self.assertEqual(report5["A20"].value, "合计")
-                self.assertEqual(report5["D20"].value, "=SUM(D5:D19)")
-                self.assertEqual(report5["I20"].value, "=SUM(I5:I19)")
-                self.assertIn("A20:C20", map(str, report5.merged_cells.ranges))
-                self.assertIn("F20:H20", map(str, report5.merged_cells.ranges))
+                self.assertEqual(
+                    report5[f"A{report5_data_end_row}"].value,
+                    report5_data_end_row - 4,
+                )
+                self.assertEqual(report5[f"A{report5_target_row}"].value, "合计")
+                self.assertEqual(
+                    report5[f"D{report5_target_row}"].value,
+                    f"=SUM(D5:D{report5_data_end_row})",
+                )
+                self.assertEqual(
+                    report5[f"I{report5_target_row}"].value,
+                    f"=SUM(I5:I{report5_data_end_row})",
+                )
+                self.assertIn(
+                    f"A{report5_target_row}:C{report5_target_row}",
+                    map(str, report5.merged_cells.ranges),
+                )
+                self.assertIn(
+                    f"F{report5_target_row}:H{report5_target_row}",
+                    map(str, report5.merged_cells.ranges),
+                )
 
                 report7 = target[config["reports"]["report7"]["sheet_name"]]
                 self.assertEqual(
@@ -213,14 +241,30 @@ class NextTemplateGenerationTests(unittest.TestCase):
                 self.assertEqual(report7["N4"].value, "=J4/I4")
 
                 report8 = target[config["reports"]["report8"]["sheet_name"]]
-                self.assertEqual(report8.max_row, 20)
-                self.assertEqual(report8["A20"].value, 16)
-                self.assertIsNone(report8["B20"].value)
+                report8_target_row = config["next_template"]["reports"]["report8"][
+                    "target_max_row"
+                ]
+                crossing_start = report8_target_row - 5
+                deleted_start = report8_target_row + 2
+                self.assertEqual(report8.max_row, report8_target_row)
+                self.assertEqual(
+                    report8[f"A{report8_target_row}"].value,
+                    report8_target_row - 4,
+                )
+                self.assertIsNone(report8[f"B{report8_target_row}"].value)
                 self.assertIn("K12:K14", map(str, report8.merged_cells.ranges))
-                self.assertIn("K15:K20", map(str, report8.merged_cells.ranges))
-                self.assertNotIn("K22:K23", map(str, report8.merged_cells.ranges))
+                self.assertIn(
+                    f"K{crossing_start}:K{report8_target_row}",
+                    map(str, report8.merged_cells.ranges),
+                )
+                self.assertNotIn(
+                    f"K{deleted_start}:K{deleted_start + 1}",
+                    map(str, report8.merged_cells.ranges),
+                )
                 self.assertIsInstance(report8["K13"], MergedCell)
-                self.assertIsInstance(report8["K19"], MergedCell)
+                self.assertIsInstance(
+                    report8[f"K{report8_target_row - 1}"], MergedCell
+                )
 
                 for report_id in (1, 2, 3, 4, 6, 7):
                     sheet_name = config["reports"][f"report{report_id}"]["sheet_name"]
