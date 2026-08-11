@@ -230,11 +230,7 @@ def _write_records(
         for column in column_indices:
             source_cell = source_ws.cell(row=source_row, column=column)
             target_cell = worksheet.cell(row=row, column=column)
-            if source_cell.has_style:
-                target_cell._style = copy(source_cell._style)
-            target_cell.number_format = source_cell.number_format
-            target_cell.alignment = copy(source_cell.alignment)
-            target_cell.protection = copy(source_cell.protection)
+            _copy_cell_style(source_cell, target_cell)
             target_cell.value = source_cell.value
             if column != column_indices[0]:
                 copy_source_comment(
@@ -250,6 +246,19 @@ def _write_records(
         worksheet.cell(row=row, column=column_indices[0]).value = sequence
         target_rows[(record["owner"], source_row)] = row
     return target_rows
+
+
+def _copy_cell_style(source_cell, target_cell) -> None:
+    """跨工作簿复制样式，并在目标工作簿中注册各样式组件。"""
+    if not source_cell.has_style:
+        return
+
+    target_cell.font = copy(source_cell.font)
+    target_cell.fill = copy(source_cell.fill)
+    target_cell.border = copy(source_cell.border)
+    target_cell.alignment = copy(source_cell.alignment)
+    target_cell.number_format = source_cell.number_format
+    target_cell.protection = copy(source_cell.protection)
 
 
 def _recreate_data_merges(

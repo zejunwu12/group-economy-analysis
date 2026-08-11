@@ -150,13 +150,13 @@ reports:
     area_columns: ["D", "I"]
     left:
       data_start_row: 5
-      data_end_row: 63
-      total_row: 64
+      data_end_row: 24
+      total_row: 25
       cols: ["A", "B", "C", "D", "E"]
     right:
       data_start_row: 5
-      data_end_row: 63
-      total_row: 64
+      data_end_row: 24
+      total_row: 25
       cols: ["F", "G", "H", "I", "J"]
 
   # Report 6: 国资委经济运行情况表
@@ -231,7 +231,7 @@ reports:
   report8:
     sheet_name: "报表8 非自有资产情况"
     data_start_row: 5
-    data_end_row: 155
+    data_end_row: 24
     cols: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]
     area_columns: ["G"]
 

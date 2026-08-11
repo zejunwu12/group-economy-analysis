@@ -1,9 +1,11 @@
 """覆盖明细和园区报表的权属批注复制。"""
 
+from io import BytesIO
 import unittest
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from openpyxl.comments import Comment
+from openpyxl.styles import Border, Side
 
 from engine.comments import CommentCopyStats, clear_template_comments
 from engine.report5_handler import process_report5
@@ -231,6 +233,54 @@ class CommentCopyHandlerTests(unittest.TestCase):
         self.assertIsNone(target["A5"].comment)
         self.assertEqual(target["B5"].comment.text, "租赁期限待复核")
         self.assertEqual(stats.copied, 1)
+
+    def test_report8_registers_cross_workbook_styles_before_recreating_merge(self):
+        target_book = Workbook()
+        target = target_book.active
+        target.title = "报表8"
+
+        source_book = Workbook()
+        source = source_book.active
+        source.title = "报表8"
+        for index in range(40):
+            source.cell(row=1, column=13 + index).border = Border(
+                left=Side(style="thin", color=f"FF{index:06X}")
+            )
+        for row in range(40, 45):
+            source.cell(row=row, column=1).value = row
+            source.cell(row=row, column=2).value = f"非自有资产{row}"
+        source["K40"] = "合并说明"
+        source["K44"].border = Border(
+            bottom=Side(style="thin", color="FFFF0000")
+        )
+        source.merge_cells("K40:K44")
+
+        process_report8(
+            target,
+            {"权属A": {"workbook": source_book}},
+            {
+                "sheet_name": "报表8",
+                "data_start_row": 5,
+                "data_end_row": 5,
+                "cols": [
+                    "A", "B", "C", "D", "E", "F",
+                    "G", "H", "I", "J", "K", "L",
+                ],
+            },
+        )
+
+        self.assertIn("K5:K9", map(str, target.merged_cells.ranges))
+        self.assertEqual(target["B5"].value, "非自有资产40")
+
+        output = BytesIO()
+        target_book.save(output)
+        output.seek(0)
+        reloaded = load_workbook(output)
+        try:
+            reloaded_target = reloaded["报表8"]
+            self.assertIn("K5:K9", map(str, reloaded_target.merged_cells.ranges))
+        finally:
+            reloaded.close()
 
     def test_comment_stats_rollback_removes_copied_details(self):
         target_book = Workbook()
