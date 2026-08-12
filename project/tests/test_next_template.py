@@ -5,9 +5,8 @@ import tempfile
 import unittest
 
 from openpyxl import Workbook, load_workbook
-from openpyxl.cell.cell import MergedCell
 from openpyxl.comments import Comment
-from openpyxl.styles import Color, PatternFill
+from openpyxl.styles import Border, Color, Font, PatternFill, Side
 
 from engine.config_loader import ConfigLoader
 from engine.next_template import (
@@ -86,6 +85,16 @@ class NextTemplateGenerationTests(unittest.TestCase):
         report5["B5"] = "拟改造项目"
         report5["F5"] = 1
         report5["G5"] = "正在改造项目"
+        report5["B5"].font = Font(name="宋体", size=11)
+        report5["B5"].border = Border(bottom=Side(style="thin"))
+        report5.row_dimensions[5].height = 22
+        report5["B6"].font = Font(bold=True)
+        report5["B6"].border = Border(bottom=Side(style="double"))
+        report5["B6"].fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+        report5.row_dimensions[6].height = 40
+        report5["B10"] = "旧数据合并"
+        report5.merge_cells("B10:B11")
+        report5.merge_cells("A1:J1")
         report5_total_row = config["reports"]["report5"]["left"]["total_row"]
         report5_data_end_row = report5_total_row - 1
         report5[f"A{report5_total_row}"] = "合计"
@@ -112,6 +121,14 @@ class NextTemplateGenerationTests(unittest.TestCase):
         report8["A3"] = "日期：2026年6月30日"
         report8["A5"] = 1
         report8["B5"] = "非自有资产"
+        report8["B5"].font = Font(name="宋体", size=11)
+        report8["B5"].border = Border(bottom=Side(style="thin"))
+        report8.row_dimensions[5].height = 22
+        report8["B6"].font = Font(bold=True)
+        report8["B6"].border = Border(bottom=Side(style="double"))
+        report8["B6"].fill = PatternFill(fill_type="solid", fgColor="FFFF00")
+        report8.row_dimensions[6].height = 40
+        report8.merge_cells("A1:L1")
         report8["K12"] = "跨行说明"
         report8.merge_cells("K12:K14")
         report8_target_row = config["next_template"]["reports"]["report8"][
@@ -231,6 +248,13 @@ class NextTemplateGenerationTests(unittest.TestCase):
                     f"F{report5_target_row}:H{report5_target_row}",
                     map(str, report5.merged_cells.ranges),
                 )
+                self.assertIn("A1:J1", map(str, report5.merged_cells.ranges))
+                self.assertNotIn("B10:B11", map(str, report5.merged_cells.ranges))
+                self.assertEqual(report5["B6"]._style, report5["B5"]._style)
+                self.assertEqual(
+                    report5.row_dimensions[6].height,
+                    report5.row_dimensions[5].height,
+                )
 
                 report7 = target[config["reports"]["report7"]["sheet_name"]]
                 self.assertEqual(
@@ -244,26 +268,23 @@ class NextTemplateGenerationTests(unittest.TestCase):
                 report8_target_row = config["next_template"]["reports"]["report8"][
                     "target_max_row"
                 ]
-                crossing_start = report8_target_row - 5
-                deleted_start = report8_target_row + 2
                 self.assertEqual(report8.max_row, report8_target_row)
                 self.assertEqual(
                     report8[f"A{report8_target_row}"].value,
                     report8_target_row - 4,
                 )
                 self.assertIsNone(report8[f"B{report8_target_row}"].value)
-                self.assertIn("K12:K14", map(str, report8.merged_cells.ranges))
-                self.assertIn(
-                    f"K{crossing_start}:K{report8_target_row}",
-                    map(str, report8.merged_cells.ranges),
+                self.assertIn("A1:L1", map(str, report8.merged_cells.ranges))
+                self.assertFalse(
+                    any(
+                        merged_range.min_row >= 5
+                        for merged_range in report8.merged_cells.ranges
+                    )
                 )
-                self.assertNotIn(
-                    f"K{deleted_start}:K{deleted_start + 1}",
-                    map(str, report8.merged_cells.ranges),
-                )
-                self.assertIsInstance(report8["K13"], MergedCell)
-                self.assertIsInstance(
-                    report8[f"K{report8_target_row - 1}"], MergedCell
+                self.assertEqual(report8["B6"]._style, report8["B5"]._style)
+                self.assertEqual(
+                    report8.row_dimensions[6].height,
+                    report8.row_dimensions[5].height,
                 )
 
                 for report_id in (1, 2, 3, 4, 6, 7):

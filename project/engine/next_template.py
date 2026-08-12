@@ -834,6 +834,12 @@ def _normalize_double_detail_rows(
             f"{worksheet.title} 目标总行数必须大于数据起始行 {data_start_row}"
         )
 
+    _remove_dynamic_data_merges(
+        worksheet,
+        data_start_row,
+        current_total_row - 1,
+    )
+
     total_merges = [
         merged_range
         for merged_range in list(worksheet.merged_cells.ranges)
@@ -887,6 +893,16 @@ def _normalize_double_detail_rows(
         )
 
     data_end_row = target_total_row - 1
+    _copy_row_style(
+        worksheet,
+        source_row=data_start_row,
+        start_row=data_start_row,
+        end_row=data_end_row,
+        end_column=len(
+            report_config["left"]["cols"]
+            + report_config["right"]["cols"]
+        ),
+    )
     for column, existed in formula_exists.items():
         if existed:
             worksheet[f"{column}{target_total_row}"] = (
@@ -917,9 +933,13 @@ def _normalize_detail_rows(
         )
 
     current_max_row = worksheet.max_row
+    _remove_dynamic_data_merges(
+        worksheet,
+        data_start_row,
+        current_max_row,
+    )
     rows_removed = max(0, current_max_row - target_max_row)
     if current_max_row > target_max_row:
-        _discard_merges_in_deleted_rows(worksheet, target_max_row)
         worksheet.delete_rows(
             target_max_row + 1,
             amount=current_max_row - target_max_row,
@@ -938,6 +958,13 @@ def _normalize_detail_rows(
                 end_column=len(report_config["cols"]),
             )
 
+    _copy_row_style(
+        worksheet,
+        source_row=data_start_row,
+        start_row=data_start_row,
+        end_row=target_max_row,
+        end_column=len(report_config["cols"]),
+    )
     sequence_column = report_config["cols"][0]
     data_columns = report_config["cols"][1:]
     for sequence, row in enumerate(
@@ -949,27 +976,37 @@ def _normalize_detail_rows(
     return rows_removed
 
 
-def _discard_merges_in_deleted_rows(
+def _remove_dynamic_data_merges(
     worksheet: Worksheet,
-    target_max_row: int,
-) -> None:
-    """Keep retained merges valid while deleting rows after ``target_max_row``.
-
-    A merge that straddles the deletion boundary cannot remain unchanged after
-    the rows below the boundary are removed.  Clip only its bottom edge to the
-    last retained row; all other retained merges remain untouched.
-    """
+    data_start_row: int,
+    data_end_row: int,
+) -> int:
+    """Remove business-data merges while preserving fixed header/total merges."""
+    removed = 0
     for merged_range in list(worksheet.merged_cells.ranges):
-        if merged_range.min_row <= target_max_row < merged_range.max_row:
-            worksheet.merged_cells.ranges.remove(merged_range)
-            worksheet.merge_cells(
-                start_row=merged_range.min_row,
-                start_column=merged_range.min_col,
-                end_row=target_max_row,
-                end_column=merged_range.max_col,
+        if (
+            merged_range.max_row < data_start_row
+            or merged_range.min_row > data_end_row
+        ):
+            continue
+        if (
+            merged_range.min_row < data_start_row
+            or merged_range.max_row > data_end_row
+        ):
+            raise NextTemplateError(
+                f"{worksheet.title} 存在跨越固定区和动态数据区的合并区域: "
+                f"{merged_range}"
             )
-        elif merged_range.min_row > target_max_row:
-            worksheet.merged_cells.ranges.remove(merged_range)
+        worksheet.unmerge_cells(str(merged_range))
+        removed += 1
+
+    if removed:
+        logger.info(
+            "%s 清除动态数据区合并区域 %s 处",
+            worksheet.title,
+            removed,
+        )
+    return removed
 
 
 def _copy_row_style(
@@ -1065,6 +1102,7 @@ def _clear_cells(
             if cell.value is not None:
                 cleared += 1
             cell.value = None
+            cell.hyperlink = None
     return cleared
 
 
@@ -1271,6 +1309,27 @@ def _validate_sanitized_template(
                         f"{merged_range}"
                     )
 
+        if rule.get("kind") in {"double_detail", "detail"}:
+            for start_row, end_row in _sanitized_data_intervals(
+                worksheet,
+                report_config,
+                rule,
+            ):
+                for merged_range in worksheet.merged_cells.ranges:
+                    if (
+                        merged_range.min_row <= end_row
+                        and merged_range.max_row >= start_row
+                    ):
+                        raise NextTemplateError(
+                            f"{worksheet.title} 动态数据区仍包含合并区域: "
+                            f"{merged_range}"
+                        )
+            _validate_dynamic_data_styles(
+                worksheet,
+                report_config,
+                rule,
+            )
+
         if clear_manual_fills:
             for row in _sanitized_data_rows(worksheet, report_config, rule):
                 for cell in worksheet[row]:
@@ -1282,6 +1341,41 @@ def _validate_sanitized_template(
                         raise NextTemplateError(
                             f"{worksheet.title} 数据区仍包含遗留填充: {cell.coordinate}"
                         )
+
+
+def _validate_dynamic_data_styles(
+    worksheet: Worksheet,
+    report_config: dict,
+    rule: dict,
+) -> None:
+    """Ensure retained dynamic rows use one canonical per-column style."""
+    kind = rule.get("kind")
+    end_column = (
+        len(report_config["left"]["cols"] + report_config["right"]["cols"])
+        if kind == "double_detail"
+        else len(report_config["cols"])
+    )
+    for start_row, end_row in _sanitized_data_intervals(
+        worksheet,
+        report_config,
+        rule,
+    ):
+        baseline_styles = [
+            copy(worksheet.cell(row=start_row, column=column)._style)
+            for column in range(1, end_column + 1)
+        ]
+        baseline_height = worksheet.row_dimensions[start_row].height
+        for row in range(start_row + 1, end_row + 1):
+            if worksheet.row_dimensions[row].height != baseline_height:
+                raise NextTemplateError(
+                    f"{worksheet.title} 动态数据区行高未统一: 第 {row} 行"
+                )
+            for column, baseline_style in enumerate(baseline_styles, start=1):
+                cell = worksheet.cell(row=row, column=column)
+                if cell._style != baseline_style:
+                    raise NextTemplateError(
+                        f"{worksheet.title} 动态数据区样式未统一: {cell.coordinate}"
+                    )
 
 
 def _validate_no_comments(workbook: Workbook) -> None:
