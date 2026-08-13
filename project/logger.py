@@ -12,6 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 from engine.comments import CommentCopyStats
+from engine.writer import EntryChangeDetail, EntryChangeStats
 
 
 SUPPORTED_LEVELS = {
@@ -276,6 +277,7 @@ def log_processing_summary(
     comment_stats: CommentCopyStats | None = None,
     summary_logger: logging.Logger | None = None,
     header_mismatches: dict[tuple[str, int], str] | None = None,
+    entry_change_stats: EntryChangeStats | None = None,
 ) -> dict:
     """输出一次汇总处理的完整摘要，并返回摘要统计。
 
@@ -291,6 +293,7 @@ def log_processing_summary(
         output_path: save_summary_workbook() 返回的实际保存路径。
         report_errors: 可选的报表错误，键可为 1 或 ``report1``。
         summary_logger: 可选日志记录器，默认使用 ``processing.summary``。
+        entry_change_stats: 固定报表处理期间发现的条目新增、减少明细。
     """
     active_logger = summary_logger or logging.getLogger("processing.summary")
     report_errors = report_errors or {}
@@ -339,6 +342,25 @@ def log_processing_summary(
             status["status"],
             message,
             file_only=True,
+        )
+
+    entry_change_details = (
+        [] if entry_change_stats is None else entry_change_stats.details
+    )
+    added_count = sum(
+        detail.change_type == "added" for detail in entry_change_details
+    )
+    removed_count = sum(
+        detail.change_type == "removed" for detail in entry_change_details
+    )
+    active_logger.info(
+        f"[条目增减检测] 新增 {added_count} 项，减少 {removed_count} 项",
+        extra={_CONSOLE_RECORD_ATTR: True},
+    )
+    for change_number, detail in enumerate(entry_change_details, start=1):
+        active_logger.warning(
+            _format_entry_change(detail, change_number),
+            extra={_CONSOLE_RECORD_ATTR: True},
         )
 
     active_logger.info(
@@ -448,6 +470,11 @@ def log_processing_summary(
     summary = {
         "ownership": _count_statuses(ownership_statuses.values()),
         "header_mismatches": len(header_mismatches),
+        "entry_changes": {
+            "added": added_count,
+            "removed": removed_count,
+            "total": len(entry_change_details),
+        },
         "reports": _count_statuses(report_statuses.values()),
         "total_validation": {
             "passed": 0 if total_validation is None else total_validation.get("passed", 0),
@@ -463,6 +490,27 @@ def log_processing_summary(
     }
     _flush_handlers(active_logger)
     return summary
+
+
+def _format_entry_change(
+    detail: EntryChangeDetail,
+    change_number: int,
+) -> str:
+    """Format an entry difference for both console and file summaries."""
+    sheet_name = _display_sheet_name(detail.report_id, detail.sheet_name)
+    if detail.change_type == "added":
+        position = f"源表第{detail.source_row}行"
+        action = "未写入汇总表，请核对配置和模板"
+        label = "新增条目"
+    else:
+        position = f"汇总表第{detail.target_row}行"
+        action = "源表未找到该单位，本行未写入，请核对源表、配置和模板"
+        label = "减少条目"
+    return (
+        f"  [{label}{change_number}] 报表{detail.report_id} {sheet_name}｜"
+        f"权属：{detail.owner_key}｜单位：'{detail.unit_name}'｜{position}；"
+        f"处理结果：{action}"
+    )
 
 
 def _build_ownership_statuses(config: dict, ownership_data: dict) -> dict:

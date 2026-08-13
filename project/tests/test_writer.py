@@ -6,7 +6,7 @@ from openpyxl import Workbook
 from openpyxl.comments import Comment
 
 from engine.comments import CommentCopyStats
-from engine.writer import write_report_fixed
+from engine.writer import EntryChangeStats, write_report_fixed
 
 
 class WriteReportFixedTests(unittest.TestCase):
@@ -115,6 +115,7 @@ class WriteReportFixedTests(unittest.TestCase):
         source_sheet["A7"] = "合计"
         source_sheet["B8"] = "合计行后的说明文字"
 
+        entry_changes = EntryChangeStats()
         with self.assertLogs("engine.writer", level="WARNING") as captured:
             written_rows = write_report_fixed(
                 template_sheet,
@@ -122,6 +123,7 @@ class WriteReportFixedTests(unittest.TestCase):
                 {"权属A": {"workbook": source_book}},
                 self.config,
                 report_id=1,
+                entry_change_stats=entry_changes,
             )
 
         warning_text = "\n".join(captured.output)
@@ -135,6 +137,31 @@ class WriteReportFixedTests(unittest.TestCase):
         self.assertEqual(template_sheet["C4"].value, 10)
         self.assertIsNone(template_sheet["B5"].value)
         self.assertIsNone(template_sheet["C5"].value)
+        self.assertEqual(entry_changes.added, 1)
+        self.assertEqual(entry_changes.removed, 0)
+        self.assertEqual(entry_changes.details[0].unit_name, "新增单位")
+        self.assertEqual(entry_changes.details[0].source_row, 5)
+
+    def test_missing_configured_unit_is_recorded_as_removed(self):
+        template_sheet, source_sheet, source_book = self._make_workbooks()
+        source_sheet["B4"] = "其他单位"
+        entry_changes = EntryChangeStats()
+
+        with self.assertLogs("engine.writer", level="WARNING"):
+            written_rows = write_report_fixed(
+                template_sheet,
+                self.report_config,
+                {"权属A": {"workbook": source_book}},
+                self.config,
+                report_id=1,
+                entry_change_stats=entry_changes,
+            )
+
+        self.assertEqual(written_rows, 0)
+        self.assertEqual(entry_changes.added, 0)
+        self.assertEqual(entry_changes.removed, 1)
+        self.assertEqual(entry_changes.details[0].unit_name, "单位A")
+        self.assertEqual(entry_changes.details[0].target_row, 4)
 
     def test_source_comment_is_copied_with_author_and_logged(self):
         template_sheet, source_sheet, source_book = self._make_workbooks()

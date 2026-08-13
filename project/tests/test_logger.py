@@ -6,6 +6,7 @@ import tempfile
 import unittest
 
 from engine.comments import CommentCopyDetail, CommentCopyStats
+from engine.writer import EntryChangeDetail, EntryChangeStats
 from logger import (
     get_suppressed_console_warning_count,
     log_ownership_check_details,
@@ -180,6 +181,70 @@ class LoggerSetupTests(unittest.TestCase):
             log_text,
         )
         self.assertEqual(summary["header_mismatches"], 1)
+
+    def test_entry_changes_are_shown_on_console_and_in_summary(self):
+        config = {
+            "quarter": {"label": "测试周期"},
+            "ownership_files": {},
+            "runtime": {"reports_to_run": [1]},
+            "reports": {"report1": {"sheet_name": "报表1 资产总体情况表"}},
+        }
+        entry_changes = EntryChangeStats(
+            details=[
+                EntryChangeDetail(
+                    report_id=1,
+                    owner_key="酒管集团",
+                    sheet_name="报表1 资产总体情况表",
+                    change_type="added",
+                    unit_name="泉旅酒管",
+                    source_row=7,
+                ),
+                EntryChangeDetail(
+                    report_id=1,
+                    owner_key="酒管集团",
+                    sheet_name="报表1 资产总体情况表",
+                    change_type="removed",
+                    unit_name="原配置单位",
+                    target_row=8,
+                ),
+            ]
+        )
+
+        with tempfile.TemporaryDirectory() as output_dir:
+            try:
+                log_path = setup_logger("INFO", output_dir)
+                handlers = {
+                    handler.get_name(): handler
+                    for handler in logging.getLogger().handlers
+                }
+                console_stream = io.StringIO()
+                handlers["summary-console"].setStream(console_stream)
+
+                summary = log_processing_summary(
+                    config=config,
+                    ownership_data={},
+                    report_results={1: 1},
+                    entry_change_stats=entry_changes,
+                )
+                handlers["summary-file"].flush()
+
+                console_text = console_stream.getvalue()
+                with open(log_path, encoding="utf-8") as log_file:
+                    file_text = log_file.read()
+
+                for output_text in (console_text, file_text):
+                    self.assertIn(
+                        "[条目增减检测] 新增 1 项，减少 1 项",
+                        output_text,
+                    )
+                    self.assertIn("单位：'泉旅酒管'｜源表第7行", output_text)
+                    self.assertIn("单位：'原配置单位'｜汇总表第8行", output_text)
+                self.assertEqual(
+                    summary["entry_changes"],
+                    {"added": 1, "removed": 1, "total": 2},
+                )
+            finally:
+                self.tearDown()
 
     def test_header_mismatch_details_are_written_to_file_not_console(self):
         config = {

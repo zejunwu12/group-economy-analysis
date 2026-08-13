@@ -24,7 +24,7 @@ from engine.report5_handler import process_report5
 from engine.report7_handler import process_report7
 from engine.report8_handler import process_report8
 from engine.validator import detect_anomalies, validate_totals
-from engine.writer import write_report_fixed
+from engine.writer import EntryChangeStats, write_report_fixed
 from logger import (
     get_suppressed_console_warning_count,
     log_ownership_check_details,
@@ -74,6 +74,7 @@ def run(
     anomaly_report = None
     output_path = None
     comment_stats = CommentCopyStats()
+    entry_change_stats = EntryChangeStats()
     header_mismatches = {}
 
     log_workflow_step(1, _WORKFLOW_STEP_COUNT, "运行准备", step_logger=logger)
@@ -132,6 +133,7 @@ def run(
             )
             snapshot = _snapshot_workbook(workbook)
             comments_checkpoint = comment_stats.checkpoint()
+            entry_changes_checkpoint = entry_change_stats.checkpoint()
             try:
                 report_results[report_id] = _process_report(
                     report_id,
@@ -139,6 +141,7 @@ def run(
                     ownership_data,
                     config,
                     comment_stats,
+                    entry_change_stats,
                     header_mismatches,
                 )
             except Exception as exc:
@@ -149,10 +152,18 @@ def run(
                 workbook.close()
                 workbook = _restore_workbook(snapshot)
                 rolled_back_comments = comment_stats.rollback(comments_checkpoint)
+                rolled_back_entry_changes = entry_change_stats.rollback(
+                    entry_changes_checkpoint
+                )
                 logger.warning(f"报表{report_id}已恢复到处理前状态")
                 if rolled_back_comments:
                     logger.warning(
                         f"报表{report_id}已撤销 {rolled_back_comments} 条批注复制记录"
+                    )
+                if rolled_back_entry_changes:
+                    logger.warning(
+                        f"报表{report_id}已撤销 "
+                        f"{rolled_back_entry_changes} 条条目增减检测记录"
                     )
             finally:
                 snapshot.close()
@@ -218,6 +229,7 @@ def run(
             output_path=output_path,
             report_errors=report_errors,
             comment_stats=comment_stats,
+            entry_change_stats=entry_change_stats,
         )
         missing_owners = sorted(
             owner_key
@@ -271,6 +283,18 @@ def run(
                     header_mismatches.items()
                 )
             ],
+            "entry_changes": [
+                {
+                    "report_id": detail.report_id,
+                    "owner": detail.owner_key,
+                    "sheet_name": detail.sheet_name,
+                    "change_type": detail.change_type,
+                    "unit_name": detail.unit_name,
+                    "source_row": detail.source_row,
+                    "target_row": detail.target_row,
+                }
+                for detail in entry_change_stats.details
+            ],
             "total_validation": total_validation,
             "anomaly_report": anomaly_report,
             "summary": summary,
@@ -287,6 +311,7 @@ def _process_report(
     ownership_data: dict,
     config: dict,
     comment_stats: CommentCopyStats,
+    entry_change_stats: EntryChangeStats,
     header_mismatches: dict[tuple[str, int], str] | None = None,
 ):
     """Dispatch one report to its corresponding writer."""
@@ -307,6 +332,7 @@ def _process_report(
             config,
             report_id,
             comment_stats,
+            entry_change_stats,
             excluded_owners=excluded_owners,
         )
     elif report_id == 5:

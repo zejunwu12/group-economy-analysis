@@ -1,6 +1,7 @@
 """Data writer with merged cell protection"""
 
 import logging
+from dataclasses import dataclass, field
 from openpyxl.cell.cell import Cell, MergedCell
 from openpyxl.worksheet.worksheet import Worksheet
 from openpyxl.utils import column_index_from_string, get_column_letter
@@ -17,6 +18,50 @@ class MergedCellProtectionError(Exception):
     """写入前后合并单元格结构发生变化。"""
 
 
+@dataclass(frozen=True)
+class EntryChangeDetail:
+    """固定报表写入时发现的一项源表与配置条目差异。"""
+
+    report_id: int
+    owner_key: str
+    sheet_name: str
+    change_type: str
+    unit_name: str
+    source_row: int | None = None
+    target_row: int | None = None
+
+
+@dataclass
+class EntryChangeStats:
+    """记录固定报表条目增减明细，并支持报表级回滚。"""
+
+    details: list[EntryChangeDetail] = field(default_factory=list)
+
+    def record(self, detail: EntryChangeDetail) -> None:
+        if detail.change_type not in {"added", "removed"}:
+            raise ValueError(f"不支持的条目变化类型: {detail.change_type}")
+        self.details.append(detail)
+
+    def checkpoint(self) -> int:
+        return len(self.details)
+
+    def rollback(self, checkpoint: int) -> int:
+        if checkpoint < 0 or checkpoint > len(self.details):
+            raise ValueError(f"无效的条目变化统计检查点: {checkpoint}")
+        removed = len(self.details) - checkpoint
+        if removed:
+            del self.details[checkpoint:]
+        return removed
+
+    @property
+    def added(self) -> int:
+        return sum(detail.change_type == "added" for detail in self.details)
+
+    @property
+    def removed(self) -> int:
+        return sum(detail.change_type == "removed" for detail in self.details)
+
+
 def write_report_fixed(
     template_ws: Worksheet,
     report_config: dict,
@@ -24,6 +69,7 @@ def write_report_fixed(
     config: dict,
     report_id: int,
     comment_stats: CommentCopyStats | None = None,
+    entry_change_stats: EntryChangeStats | None = None,
     *,
     excluded_owners: set[str] | None = None,
 ) -> int:
@@ -88,6 +134,7 @@ def write_report_fixed(
         eligible_ownership_data,
         config,
         report_id,
+        entry_change_stats,
     )
 
     if formula_number_format:
@@ -158,9 +205,21 @@ def write_report_fixed(
             data_start_row=report_config.get("data_start_row", 1),
         )
         if src_row is None:
+            if entry_change_stats is not None:
+                entry_change_stats.record(
+                    EntryChangeDetail(
+                        report_id=report_id,
+                        owner_key=owner_key,
+                        sheet_name=sheet_name,
+                        change_type="removed",
+                        unit_name=unit_name,
+                        target_row=row_num,
+                    )
+                )
             logger.warning(
                 f"  报表{report_id} 第{row_num}行: "
-                f"在 {owner_key} 的 {sheet_name} 中未找到 '{unit_name}'，跳过"
+                f"在 {owner_key} 的 {sheet_name} 中未找到 '{unit_name}'，跳过",
+                extra={"file_only": True},
             )
             continue
 
@@ -390,6 +449,7 @@ def _warn_unconfigured_source_units(
     ownership_data: dict,
     config: dict,
     report_id: int,
+    entry_change_stats: EntryChangeStats | None = None,
 ) -> None:
     """提示源表中未出现在本报表配置里的单位，但不参与写入。"""
     sheet_name = report_config["sheet_name"]
@@ -423,6 +483,19 @@ def _warn_unconfigured_source_units(
         if not extras:
             continue
 
+        if entry_change_stats is not None:
+            for row_num, unit_name in extras:
+                entry_change_stats.record(
+                    EntryChangeDetail(
+                        report_id=report_id,
+                        owner_key=owner_key,
+                        sheet_name=sheet_name,
+                        change_type="added",
+                        unit_name=unit_name,
+                        source_row=row_num,
+                    )
+                )
+
         details = "、".join(
             f"'{unit_name}'（源表第{row_num}行）"
             for row_num, unit_name in extras
@@ -430,7 +503,8 @@ def _warn_unconfigured_source_units(
         logger.warning(
             f"  [未配置单位检测] 报表{report_id}｜权属：{owner_key}｜"
             f"发现 {len(extras)} 个未配置单位：{details}；"
-            "处理结果：未写入汇总表，请核对配置和模板"
+            "处理结果：未写入汇总表，请核对配置和模板",
+            extra={"file_only": True},
         )
 
 
