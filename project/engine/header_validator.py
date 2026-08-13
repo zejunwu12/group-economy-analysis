@@ -36,9 +36,10 @@ def detect_ownership_header_mismatches(
 ) -> dict[tuple[str, int], str]:
     """Detect source sheets whose header structure differs from the template.
 
-    The first version deliberately compares only the effective header column
-    range and merged-cell coordinates. It does not interpret header text,
-    modify workbooks, or attempt to repair a mismatch.
+    The check blocks only missing sheets and effective header column-range
+    differences. Merge-range differences are recorded as debug information
+    but do not block writing, because equivalent multi-level headers may use
+    different merge boundaries.
     """
     selected_report_ids = tuple(report_ids or range(1, 9))
     mismatches: dict[tuple[str, int], str] = {}
@@ -69,6 +70,15 @@ def detect_ownership_header_mismatches(
                 header_end_row,
             )
             reasons = _compare_signatures(template_signature, source_signature)
+            # if template_signature.merged_ranges != source_signature.merged_ranges:
+            #     logger.debug(
+            #         "报表%s｜权属：%s｜表头合并结构存在差异，"
+            #         "但不作为阻断条件（模板 %s 处，权属表 %s 处）",
+            #         report_id,
+            #         owner_key,
+            #         len(template_signature.merged_ranges),
+            #         len(source_signature.merged_ranges),
+            #     )
             if not reasons:
                 continue
 
@@ -153,7 +163,7 @@ def _compare_signatures(
     template_signature: HeaderSignature,
     source_signature: HeaderSignature,
 ) -> list[str]:
-    """Describe structural differences without attempting a repair."""
+    """Describe blocking differences without attempting a repair."""
     reasons = []
     if (
         template_signature.min_column,
@@ -165,12 +175,6 @@ def _compare_signatures(
         reasons.append(
             f"表头有效列范围不一致（模板 {template_signature.column_range}，"
             f"权属表 {source_signature.column_range}）"
-        )
-    if template_signature.merged_ranges != source_signature.merged_ranges:
-        reasons.append(
-            "表头合并结构不一致"
-            f"（模板 {len(template_signature.merged_ranges)} 处，"
-            f"权属表 {len(source_signature.merged_ranges)} 处）"
         )
     return reasons
 

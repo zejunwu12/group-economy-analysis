@@ -60,7 +60,7 @@ class HeaderValidatorTests(unittest.TestCase):
         self.assertIn("模板 A:C", reason)
         self.assertIn("权属表 A:D", reason)
 
-    def test_merged_header_difference_is_reported(self):
+    def test_merged_header_difference_does_not_block_writing(self):
         template = self._workbook(columns=3, merge="A4:B4")
         source = self._workbook(columns=3)
 
@@ -71,7 +71,7 @@ class HeaderValidatorTests(unittest.TestCase):
             report_ids=[8],
         )
 
-        self.assertIn("表头合并结构不一致", mismatches[("权属A", 8)])
+        self.assertEqual(mismatches, {})
 
     def test_missing_sheet_is_reported(self):
         template = self._workbook(columns=3)
