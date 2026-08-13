@@ -24,6 +24,8 @@ def write_report_fixed(
     config: dict,
     report_id: int,
     comment_stats: CommentCopyStats | None = None,
+    *,
+    excluded_owners: set[str] | None = None,
 ) -> int:
     """将固定行数报表的权属数据写入汇总表。
 
@@ -69,15 +71,21 @@ def write_report_fixed(
     }
 
     ownership_files = config["ownership_files"]
+    excluded_owners = excluded_owners or set()
 
     start_col_idx = column_index_from_string(data_start_col)
     end_col_idx = column_index_from_string(data_end_col)
     written_count = 0
+    eligible_ownership_data = {
+        owner_key: owner_data
+        for owner_key, owner_data in ownership_data.items()
+        if owner_key not in excluded_owners
+    }
 
     _warn_unconfigured_source_units(
         template_ws,
         report_config,
-        ownership_data,
+        eligible_ownership_data,
         config,
         report_id,
     )
@@ -110,6 +118,13 @@ def write_report_fixed(
             logger.warning(
                 f"  报表{report_id} 第{row_num}行: 单位 '{unit_name}' "
                 f"无法确定所属权属，跳过"
+            )
+            continue
+
+        if owner_key in excluded_owners:
+            logger.debug(
+                f"  报表{report_id} 第{row_num}行: 权属 '{owner_key}' "
+                "未通过格式检查，跳过"
             )
             continue
 
@@ -533,4 +548,3 @@ def _is_total_row_label(value: str) -> bool:
     return value in _TOTAL_ROW_LABELS or any(
         value.endswith(label) for label in _TOTAL_ROW_LABELS
     )
-

@@ -26,6 +26,8 @@ def process_report7(
     ownership_data: dict,
     report_config: dict,
     comment_stats: CommentCopyStats | None = None,
+    *,
+    excluded_owners: set[str] | None = None,
 ) -> dict[str, dict]:
     """按园区名称从权属文件匹配数据并写入四个子表。"""
     merged_ranges_before = get_merged_ranges(template_ws)
@@ -41,6 +43,7 @@ def process_report7(
         for column in report_config.get("text_columns", [])
     }
     results = {}
+    excluded_owners = excluded_owners or set()
 
     for sub_table in report_config["sub_tables"]:
         for target_row, park_name in sub_table["row_mapping"].items():
@@ -48,6 +51,7 @@ def process_report7(
                 ownership_data,
                 sheet_name,
                 park_name,
+                excluded_owners=excluded_owners,
             )
             written_cells = _write_park_row(
                 template_ws,
@@ -81,12 +85,17 @@ def _find_unique_park_source(
     ownership_data: dict,
     sheet_name: str,
     park_name: str,
+    *,
+    excluded_owners: set[str] | None = None,
 ) -> tuple[str, Worksheet, int]:
     """查找唯一具有实际运营数据的园区来源行。"""
     candidates = []
     name_matches = []
+    excluded_owners = excluded_owners or set()
 
     for owner_key, owner_data in ownership_data.items():
+        if owner_key in excluded_owners:
+            continue
         workbook = owner_data["workbook"]
         if sheet_name not in workbook.sheetnames:
             continue

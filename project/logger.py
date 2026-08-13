@@ -24,6 +24,27 @@ SUPPORTED_LEVELS = {
 
 _STEP_SEPARATOR = "=" * 18
 _REPORT_SEPARATOR = "-" * 14
+_CONSOLE_RECORD_ATTR = "console_summary"
+_FILE_ONLY_RECORD_ATTR = "file_only"
+
+
+class _ConciseConsoleFilter(logging.Filter):
+    """Keep normal console output compact while retaining full file logs."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.suppressed_warning_count = 0
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if getattr(record, _FILE_ONLY_RECORD_ATTR, False):
+            return False
+        if getattr(record, _CONSOLE_RECORD_ATTR, False):
+            return True
+        if record.levelno >= logging.ERROR:
+            return True
+        if record.levelno >= logging.WARNING:
+            self.suppressed_warning_count += 1
+        return False
 
 
 def setup_logger(
@@ -97,6 +118,8 @@ def setup_logger(
     console.set_name("summary-console")
     console.setLevel(console_level)
     console.setFormatter(logging.Formatter(fmt, datefmt))
+    if console_level > logging.DEBUG:
+        console.addFilter(_ConciseConsoleFilter())
     root.addHandler(console)
 
     # 文件 handler
@@ -132,6 +155,7 @@ def log_workflow_step(
         total_steps,
         title,
         _STEP_SEPARATOR,
+        extra={_CONSOLE_RECORD_ATTR: True},
     )
 
 
@@ -154,7 +178,91 @@ def log_report_step(
         report_id,
         display_name,
         _REPORT_SEPARATOR,
+        extra={_FILE_ONLY_RECORD_ATTR: True},
     )
+
+
+def get_suppressed_console_warning_count() -> int:
+    """Return warnings hidden from the concise console during this run."""
+    for handler in logging.getLogger().handlers:
+        if handler.get_name() != "summary-console":
+            continue
+        for log_filter in handler.filters:
+            if isinstance(log_filter, _ConciseConsoleFilter):
+                return log_filter.suppressed_warning_count
+    return 0
+
+
+def log_ownership_check_details(
+    config: dict,
+    ownership_data: dict,
+    header_mismatches: dict[tuple[str, int], str] | None = None,
+    *,
+    detail_logger: logging.Logger | None = None,
+    console_summary: bool = False,
+) -> None:
+    """输出权属文件加载及格式检查详情。"""
+    active_logger = detail_logger or logging.getLogger("processing.ownership")
+    header_mismatches = header_mismatches or {}
+    ownership_statuses = _build_ownership_statuses(config, ownership_data)
+    ownership_counts = _count_statuses(ownership_statuses.values())
+    summary_extra = {
+        _CONSOLE_RECORD_ATTR if console_summary else _FILE_ONLY_RECORD_ATTR: True
+    }
+
+    active_logger.info(
+        "[权属文件加载] 已加载 %s 个，未加载 %s 个，无需加载 %s 个",
+        ownership_counts["success"],
+        ownership_counts["failed"],
+        ownership_counts["skipped"],
+        extra=summary_extra,
+    )
+    for owner_key, status in ownership_statuses.items():
+        if status["status"] == "success":
+            continue
+        message = f"  {owner_key}: {status['label']}"
+        if status["detail"]:
+            message += f"（{status['detail']}）"
+        _log_by_status(
+            active_logger,
+            status["status"],
+            message,
+            file_only=True,
+        )
+
+    report_count = len(config["runtime"].get("reports_to_run", range(1, 9)))
+    header_check_total = len(ownership_data) * report_count
+    header_check_passed = max(header_check_total - len(header_mismatches), 0)
+    if header_mismatches:
+        active_logger.warning(
+            f"  [权属表格式检查] 通过 {header_check_passed} 项，"
+            f"需核对 {len(header_mismatches)} 项",
+            extra=summary_extra,
+        )
+        active_logger.warning(
+            "    需核对问题明细：",
+            extra={_FILE_ONLY_RECORD_ATTR: True},
+        )
+        for problem_number, ((owner_key, report_id), reason) in enumerate(
+            sorted(header_mismatches.items()),
+            start=1,
+        ):
+            for message in _format_header_mismatch_warning(
+                config,
+                owner_key,
+                report_id,
+                reason,
+                problem_number,
+            ):
+                active_logger.warning(
+                    message,
+                    extra={_FILE_ONLY_RECORD_ATTR: True},
+                )
+    else:
+        active_logger.info(
+            f"  [权属表格式检查] 通过 {header_check_passed} 项，需核对 0 项",
+            extra=summary_extra,
+        )
 
 
 def log_processing_summary(
@@ -167,6 +275,7 @@ def log_processing_summary(
     report_errors: dict | None = None,
     comment_stats: CommentCopyStats | None = None,
     summary_logger: logging.Logger | None = None,
+    header_mismatches: dict[tuple[str, int], str] | None = None,
 ) -> dict:
     """输出一次汇总处理的完整摘要，并返回摘要统计。
 
@@ -175,6 +284,8 @@ def log_processing_summary(
         ownership_data: 已成功加载的权属数据，结构与 reader.load_ownership_files()
             的返回值一致。
         report_results: 各报表处理函数的返回结果，键可为 1 或 ``report1``。
+        header_mismatches: 权属表格式异常，键为 ``(权属名称, 报表编号)``，
+            值为异常原因。
         total_validation: validator.validate_totals() 返回的报告。
         anomaly_report: validator.detect_anomalies() 返回的报告。
         output_path: save_summary_workbook() 返回的实际保存路径。
@@ -183,6 +294,7 @@ def log_processing_summary(
     """
     active_logger = summary_logger or logging.getLogger("processing.summary")
     report_errors = report_errors or {}
+    header_mismatches = header_mismatches or {}
     ownership_statuses = _build_ownership_statuses(config, ownership_data)
     report_statuses = _build_report_statuses(
         config,
@@ -191,41 +303,59 @@ def log_processing_summary(
     )
 
     separator = "=" * 24
-    active_logger.info(f"{separator} 运行结果摘要 {separator}")
-    active_logger.info(f"汇总周期: {config['quarter']['label']}")
-
-    ownership_counts = _count_statuses(ownership_statuses.values())
     active_logger.info(
-        "[权属文件加载] 已加载 %s 个，未加载 %s 个，无需加载 %s 个",
-        ownership_counts["success"],
-        ownership_counts["failed"],
-        ownership_counts["skipped"],
+        f"{separator} 运行结果摘要 {separator}",
+        extra={_CONSOLE_RECORD_ATTR: True},
     )
-    for owner_key, status in ownership_statuses.items():
-        if status["status"] == "success":
-            continue
-        message = f"  {owner_key}: {status['label']}"
-        if status["detail"]:
-            message += f"（{status['detail']}）"
-        _log_by_status(active_logger, status["status"], message)
+    active_logger.info(
+        f"汇总周期: {config['quarter']['label']}",
+        extra={_FILE_ONLY_RECORD_ATTR: True},
+    )
 
-    active_logger.info("[报表处理结果]")
+    log_ownership_check_details(
+        config,
+        ownership_data,
+        header_mismatches,
+        detail_logger=active_logger,
+        console_summary=True,
+    )
+
+    report_counts = _count_statuses(report_statuses.values())
+    active_logger.info(
+        "[报表处理结果] 完成 %s 张，失败 %s 张，未执行 %s 张",
+        report_counts["success"],
+        report_counts["failed"],
+        report_counts["skipped"],
+        extra={_CONSOLE_RECORD_ATTR: True},
+    )
     for report_id, status in report_statuses.items():
         sheet_name = _display_sheet_name(report_id, status["sheet_name"])
         message = (
             f"  报表{report_id} {sheet_name}: "
             f"{status['label']}，{status['detail']}"
         )
-        _log_by_status(active_logger, status["status"], message)
+        _log_by_status(
+            active_logger,
+            status["status"],
+            message,
+            file_only=True,
+        )
 
-    active_logger.info("[合计值校验]")
+    active_logger.info(
+        "[合计值校验]",
+        extra={_CONSOLE_RECORD_ATTR: True},
+    )
     if total_validation is None:
-        active_logger.info("  未执行")
+        active_logger.info(
+            "  未执行",
+            extra={_CONSOLE_RECORD_ATTR: True},
+        )
     else:
         active_logger.info(
             f"  通过 {total_validation.get('passed', 0)} 项，"
             f"需核对 {total_validation.get('warnings', 0)} 项，"
-            f"未校验 {total_validation.get('skipped', 0)} 项"
+            f"未校验 {total_validation.get('skipped', 0)} 项",
+            extra={_CONSOLE_RECORD_ATTR: True},
         )
         warning_details = [
             detail
@@ -233,51 +363,91 @@ def log_processing_summary(
             if detail.get("status") == "warning"
         ]
         if warning_details:
-            active_logger.warning("  需核对问题明细：")
+            active_logger.warning(
+                "  需核对问题明细：",
+                extra={_FILE_ONLY_RECORD_ATTR: True},
+            )
             for problem_number, detail in enumerate(warning_details, start=1):
                 for message in _format_total_warning(detail, problem_number):
-                    active_logger.warning(message)
+                    active_logger.warning(
+                        message,
+                        extra={_FILE_ONLY_RECORD_ATTR: True},
+                    )
 
-    active_logger.info("[数据完整性和异常值检测]")
+    active_logger.info(
+        "[数据完整性和异常值检测]",
+        extra={_CONSOLE_RECORD_ATTR: True},
+    )
     if anomaly_report is None:
-        active_logger.info("  未执行")
+        active_logger.info(
+            "  未执行",
+            extra={_CONSOLE_RECORD_ATTR: True},
+        )
     else:
         active_logger.info(
             f"  共发现 {anomaly_report.get('total', 0)} 项："
             f"负面积 {anomaly_report.get('negative_area', 0)} 项，"
             f"超过面积阈值 {anomaly_report.get('oversized_area', 0)} 项，"
-            f"关键字段均为空 {anomaly_report.get('empty_key_data', 0)} 项"
+            f"关键字段均为空 {anomaly_report.get('empty_key_data', 0)} 项",
+            extra={_CONSOLE_RECORD_ATTR: True},
         )
         anomaly_details = anomaly_report.get("details", [])
         if anomaly_details:
-            active_logger.warning("  异常明细：")
+            active_logger.warning(
+                "  异常明细：",
+                extra={_FILE_ONLY_RECORD_ATTR: True},
+            )
             for problem_number, detail in enumerate(anomaly_details, start=1):
                 active_logger.warning(
-                    _format_anomaly_warning(detail, problem_number)
+                    _format_anomaly_warning(detail, problem_number),
+                    extra={_FILE_ONLY_RECORD_ATTR: True},
                 )
 
-    active_logger.info("[批注处理]")
+    active_logger.info(
+        "[批注处理]",
+        extra={_CONSOLE_RECORD_ATTR: True},
+    )
     active_logger.info(
         f"  模板原有批注已清除 "
         f"{0 if comment_stats is None else comment_stats.template_cleared} 条；"
-        f"权属批注已复制 {0 if comment_stats is None else comment_stats.copied} 条"
+        f"权属批注已复制 {0 if comment_stats is None else comment_stats.copied} 条",
+        extra={_CONSOLE_RECORD_ATTR: True},
     )
     comment_details = [] if comment_stats is None else comment_stats.details
     if comment_details:
-        active_logger.info("  权属批注复制明细：")
+        active_logger.info(
+            "  权属批注复制明细：",
+            extra={_FILE_ONLY_RECORD_ATTR: True},
+        )
         for comment_number, detail in enumerate(comment_details, start=1):
             for message in _format_comment_detail(detail, comment_number):
-                active_logger.info(message)
+                active_logger.info(
+                    message,
+                    extra={_FILE_ONLY_RECORD_ATTR: True},
+                )
 
-    active_logger.info("[生成文件]")
+    active_logger.info(
+        "[生成文件]",
+        extra={_FILE_ONLY_RECORD_ATTR: True},
+    )
     if output_path:
-        active_logger.info(f"  {Path(output_path).resolve()}")
+        active_logger.info(
+            f"  {Path(output_path).resolve()}",
+            extra={_FILE_ONLY_RECORD_ATTR: True},
+        )
     else:
-        active_logger.warning("  未生成汇总文件")
-    active_logger.info(f"{separator} 摘要结束 {separator}")
+        active_logger.warning(
+            "  未生成汇总文件",
+            extra={_CONSOLE_RECORD_ATTR: True},
+        )
+    active_logger.info(
+        f"{separator} 摘要结束 {separator}",
+        extra={_FILE_ONLY_RECORD_ATTR: True},
+    )
 
     summary = {
         "ownership": _count_statuses(ownership_statuses.values()),
+        "header_mismatches": len(header_mismatches),
         "reports": _count_statuses(report_statuses.values()),
         "total_validation": {
             "passed": 0 if total_validation is None else total_validation.get("passed", 0),
@@ -439,6 +609,24 @@ def _format_total_warning(detail: dict, problem_number: int) -> list[str]:
     return messages
 
 
+def _format_header_mismatch_warning(
+    config: dict,
+    owner_key: str,
+    report_id: int,
+    reason: str,
+    problem_number: int,
+) -> list[str]:
+    """将一项权属表格式异常拆成便于人工核对的多行说明。"""
+    sheet_name = config["reports"][f"report{report_id}"]["sheet_name"]
+    display_name = _display_sheet_name(report_id, sheet_name)
+    return [
+        f"      [问题{problem_number}] 报表{report_id} {display_name}｜"
+        f"权属：{owner_key}",
+        f"        原因：{reason}",
+        "        处理结果：该权属本报表未写入，请人工复核",
+    ]
+
+
 def _format_anomaly_warning(detail: dict, problem_number: int) -> str:
     """生成一项数据完整性或异常值问题的摘要说明。"""
     report_id = detail.get("report_id")
@@ -475,13 +663,20 @@ def _format_comment_detail(detail, comment_number: int) -> list[str]:
     ]
 
 
-def _log_by_status(active_logger: logging.Logger, status: str, message: str) -> None:
+def _log_by_status(
+    active_logger: logging.Logger,
+    status: str,
+    message: str,
+    *,
+    file_only: bool = False,
+) -> None:
+    extra = {_FILE_ONLY_RECORD_ATTR: True} if file_only else None
     if status == "failed":
-        active_logger.error(message)
+        active_logger.error(message, extra=extra)
     elif status == "skipped":
-        active_logger.warning(message)
+        active_logger.warning(message, extra=extra)
     else:
-        active_logger.info(message)
+        active_logger.info(message, extra=extra)
 
 
 def _count_statuses(statuses) -> dict:

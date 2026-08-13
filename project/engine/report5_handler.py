@@ -17,6 +17,8 @@ def process_report5(
     ownership_data: dict,
     report_config: dict,
     comment_stats: CommentCopyStats | None = None,
+    *,
+    excluded_owners: set[str] | None = None,
 ) -> dict[str, int]:
     """汇总报表5左右两栏明细，必要时扩展模板数据行。"""
     sheet_name = report_config["sheet_name"]
@@ -28,12 +30,14 @@ def process_report5(
         sheet_name,
         left_config,
         "左侧拟改造",
+        excluded_owners=excluded_owners,
     )
     right_records = _extract_records(
         ownership_data,
         sheet_name,
         right_config,
         "右侧正在改造",
+        excluded_owners=excluded_owners,
     )
 
     required_rows = max(len(left_records), len(right_records))
@@ -77,12 +81,17 @@ def _extract_records(
     sheet_name: str,
     side_config: dict,
     side_label: str,
+    *,
+    excluded_owners: set[str] | None = None,
 ) -> list[dict]:
     """提取一侧有效明细；序号列不参与有效性判断。"""
     columns = [column_index_from_string(column) for column in side_config["cols"]]
     records = []
+    excluded_owners = excluded_owners or set()
 
     for owner_key, owner_data in ownership_data.items():
+        if owner_key in excluded_owners:
+            continue
         workbook = owner_data["workbook"]
         if sheet_name not in workbook.sheetnames:
             logger.warning(f"报表5: 权属 '{owner_key}' 缺少工作表 '{sheet_name}'，跳过")

@@ -17,6 +17,8 @@ def process_report8(
     ownership_data: dict,
     report_config: dict,
     comment_stats: CommentCopyStats | None = None,
+    *,
+    excluded_owners: set[str] | None = None,
 ) -> dict[str, int]:
     """汇总非自有资产明细，并按实际记录数动态调整数据区。"""
     records = _extract_records(
@@ -24,6 +26,7 @@ def process_report8(
         report_config["sheet_name"],
         report_config["data_start_row"],
         report_config["cols"],
+        excluded_owners=excluded_owners,
     )
     header_merges = _unmerge_data_ranges(
         template_ws,
@@ -75,12 +78,17 @@ def _extract_records(
     sheet_name: str,
     data_start_row: int,
     columns: list[str],
+    *,
+    excluded_owners: set[str] | None = None,
 ) -> list[dict]:
     """提取所有权属的有效明细，并保留来源行和工作表。"""
     column_indices = [column_index_from_string(column) for column in columns]
     records = []
+    excluded_owners = excluded_owners or set()
 
     for owner_key, owner_data in ownership_data.items():
+        if owner_key in excluded_owners:
+            continue
         workbook = owner_data["workbook"]
         if sheet_name not in workbook.sheetnames:
             logger.warning(f"报表8: 权属 '{owner_key}' 缺少工作表 '{sheet_name}'，跳过")

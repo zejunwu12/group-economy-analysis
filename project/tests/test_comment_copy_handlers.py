@@ -71,6 +71,39 @@ class CommentCopyHandlerTests(unittest.TestCase):
         self.assertEqual(target["B5"].comment.author, "填报人")
         self.assertEqual(stats.copied, 1)
 
+    def test_report5_excludes_failed_owner(self):
+        template_book = Workbook()
+        target = template_book.active
+        target.title = "报表5"
+        target["E6"] = "=SUM(E5:E5)"
+        target["J6"] = "=SUM(J5:J5)"
+
+        source_book = Workbook()
+        source = source_book.active
+        source.title = "报表5"
+        source["A5"] = 1
+        source["B5"] = "不应写入"
+
+        result = process_report5(
+            target,
+            {"权属A": {"workbook": source_book}},
+            {
+                "sheet_name": "报表5",
+                "left": {
+                    "data_start_row": 5, "data_end_row": 5,
+                    "total_row": 6, "cols": ["A", "B", "C", "D", "E"],
+                },
+                "right": {
+                    "data_start_row": 5, "data_end_row": 5,
+                    "total_row": 6, "cols": ["F", "G", "H", "I", "J"],
+                },
+            },
+            excluded_owners={"权属A"},
+        )
+
+        self.assertEqual(result["left_count"], 0)
+        self.assertIsNone(target["B5"].value)
+
     def test_report7_copies_park_comment(self):
         target_book = Workbook()
         target = target_book.active
@@ -96,6 +129,39 @@ class CommentCopyHandlerTests(unittest.TestCase):
 
         self.assertEqual(target["D4"].comment.text, "出租面积含临时合同")
         self.assertEqual(stats.copied, 1)
+
+    def test_report7_excludes_failed_owner_from_source_search(self):
+        target_book = Workbook()
+        target = target_book.active
+        target.title = "报表7"
+
+        failed_book = Workbook()
+        failed = failed_book.active
+        failed.title = "报表7"
+        failed["A4"] = "测试园区"
+        failed["D4"] = 99
+
+        valid_book = Workbook()
+        valid = valid_book.active
+        valid.title = "报表7"
+        valid["A4"] = "测试园区"
+        valid["D4"] = 10
+
+        result = process_report7(
+            target,
+            {
+                "异常权属": {"workbook": failed_book},
+                "正常权属": {"workbook": valid_book},
+            },
+            {
+                "sheet_name": "报表7", "data_start_col": "A", "data_end_col": "D",
+                "sub_tables": [{"row_mapping": {4: "测试园区"}}],
+            },
+            excluded_owners={"异常权属"},
+        )
+
+        self.assertEqual(result["测试园区"]["owner"], "正常权属")
+        self.assertEqual(target["D4"].value, 10)
 
     def test_report7_preserves_only_configured_formula_columns_and_total_rows(self):
         target_book = Workbook()

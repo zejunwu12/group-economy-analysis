@@ -41,6 +41,7 @@ reports:
   # Report 1: 资产总体情况表
   report1:
     sheet_name: "报表1 资产总体情况表"
+    header_start_row: 3
     data_start_row: 7
     data_end_row: 17
     total_row: 18
@@ -67,6 +68,7 @@ reports:
   # Report 2: 按建筑类型区分总资产
   report2:
     sheet_name: "报表2 按建筑类型区分总资产"
+    header_start_row: 3
     data_start_row: 4
     data_end_row: 14
     total_row: 15
@@ -91,6 +93,7 @@ reports:
   # Report 3: 资产运营情况表 (special arrangement: 侨乡文体 after 古城集团)
   report3:
     sheet_name: "报表3 资产运营情况表"
+    header_start_row: 3
     data_start_row: 5
     data_end_row: 14
     total_row: 15
@@ -119,6 +122,7 @@ reports:
   # Report 4: 各企业出租率
   report4:
     sheet_name: "报表4 各企业出租率"
+    header_start_row: 3
     data_start_row: 4
     data_end_row: 14
     total_row: 15
@@ -147,6 +151,7 @@ reports:
   # Report 5: 资产改造情况表 (double-column, append mode)
   report5:
     sheet_name: "报表5 资产改造情况表"
+    header_start_row: 3
     area_columns: ["D", "I"]
     left:
       data_start_row: 5
@@ -162,6 +167,7 @@ reports:
   # Report 6: 国资委经济运行情况表
   report6:
     sheet_name: "报表6 国资委经济运行情况表"
+    header_start_row: 4
     data_start_row: 6
     data_end_row: 16
     total_row: 17
@@ -186,6 +192,7 @@ reports:
   # Report 7: 资产运营情况表（园区）- Q2 实际有 4 个子表
   report7:
     sheet_name: "报表7 资产运营情况表（园区）"
+    header_start_row: 3
     data_start_col: "A"
     data_end_col: "V"
     area_columns: ["D", "E", "F", "G", "H", "I", "J", "K"]
@@ -230,6 +237,7 @@ reports:
   # Report 8: 非自有资产情况 (detail, append mode)
   report8:
     sheet_name: "报表8 非自有资产情况"
+    header_start_row: 4
     data_start_row: 5
     data_end_row: 24
     cols: ["A", "B", "C", "D", "E", "F", "G", "H", "I", "J", "K", "L"]

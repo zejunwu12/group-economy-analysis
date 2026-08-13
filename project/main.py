@@ -11,6 +11,7 @@ import openpyxl
 from engine.config_loader import ConfigLoader
 from engine.comments import CommentCopyStats, clear_template_comments
 from engine.font import apply_uniform_font
+from engine.header_validator import detect_ownership_header_mismatches
 from engine.output import save_summary_workbook
 from engine.period import QuarterContext, QuarterError
 from engine.reader import (
@@ -25,6 +26,8 @@ from engine.report8_handler import process_report8
 from engine.validator import detect_anomalies, validate_totals
 from engine.writer import write_report_fixed
 from logger import (
+    get_suppressed_console_warning_count,
+    log_ownership_check_details,
     log_processing_summary,
     log_report_step,
     log_workflow_step,
@@ -71,6 +74,7 @@ def run(
     anomaly_report = None
     output_path = None
     comment_stats = CommentCopyStats()
+    header_mismatches = {}
 
     log_workflow_step(1, _WORKFLOW_STEP_COUNT, "运行准备", step_logger=logger)
     logger.info(f"汇总周期: {config['quarter']['label']}")
@@ -89,15 +93,27 @@ def run(
         )
         workbook = load_template(config, template_path=template_path)
         validate_template(workbook, config, report_ids=reports_to_run)
-        clear_template_comments(workbook, stats=comment_stats)
 
         log_workflow_step(
             3,
             _WORKFLOW_STEP_COUNT,
-            "加载权属数据文件",
+            "加载并检查权属数据文件",
             step_logger=logger,
         )
         ownership_data = load_ownership_files(config)
+        header_mismatches = detect_ownership_header_mismatches(
+            workbook,
+            ownership_data,
+            config,
+            report_ids=reports_to_run,
+        )
+        log_ownership_check_details(
+            config,
+            ownership_data,
+            header_mismatches,
+            detail_logger=logger,
+        )
+        clear_template_comments(workbook, stats=comment_stats)
 
         log_workflow_step(
             4,
@@ -123,6 +139,7 @@ def run(
                     ownership_data,
                     config,
                     comment_stats,
+                    header_mismatches,
                 )
             except Exception as exc:
                 report_errors[report_id] = f"{type(exc).__name__}: {exc}"
@@ -195,6 +212,7 @@ def run(
             config=config,
             ownership_data=ownership_data,
             report_results=report_results,
+            header_mismatches=header_mismatches,
             total_validation=total_validation,
             anomaly_report=anomaly_report,
             output_path=output_path,
@@ -222,16 +240,37 @@ def run(
                     "执行失败校验：" + "、".join(sorted(validation_errors))
                 )
             logger.warning(
-                "汇总文件已生成；" + "；".join(completion_notes)
+                "汇总文件已生成；" + "；".join(completion_notes),
+                extra={"console_summary": True},
             )
         else:
-            logger.info("汇总文件已生成，处理流程完成")
+            logger.info(
+                "汇总文件已生成，处理流程完成",
+                extra={"console_summary": True},
+            )
+        suppressed_warning_count = get_suppressed_console_warning_count()
+        if suppressed_warning_count:
+            logger.warning(
+                f"另有 {suppressed_warning_count} 条详细警告，"
+                f"请查看日志文件：{log_path}",
+                extra={"console_summary": True},
+            )
         return {
             "output_path": output_path,
             "log_path": log_path,
             "report_results": report_results,
             "report_errors": report_errors,
             "validation_errors": validation_errors,
+            "header_mismatches": [
+                {
+                    "owner": owner_key,
+                    "report_id": report_id,
+                    "reason": reason,
+                }
+                for (owner_key, report_id), reason in sorted(
+                    header_mismatches.items()
+                )
+            ],
             "total_validation": total_validation,
             "anomaly_report": anomaly_report,
             "summary": summary,
@@ -248,11 +287,17 @@ def _process_report(
     ownership_data: dict,
     config: dict,
     comment_stats: CommentCopyStats,
+    header_mismatches: dict[tuple[str, int], str] | None = None,
 ):
     """Dispatch one report to its corresponding writer."""
     report_config = config["reports"][f"report{report_id}"]
     worksheet = workbook[report_config["sheet_name"]]
     logger.debug(f"开始处理报表{report_id}: {worksheet.title}")
+    excluded_owners = {
+        owner_key
+        for owner_key, mismatch_report_id in (header_mismatches or {})
+        if mismatch_report_id == report_id
+    }
 
     if report_id in _FIXED_REPORT_IDS:
         result = write_report_fixed(
@@ -262,18 +307,22 @@ def _process_report(
             config,
             report_id,
             comment_stats,
+            excluded_owners=excluded_owners,
         )
     elif report_id == 5:
         result = process_report5(
             worksheet, ownership_data, report_config, comment_stats,
+            excluded_owners=excluded_owners,
         )
     elif report_id == 7:
         result = process_report7(
             worksheet, ownership_data, report_config, comment_stats,
+            excluded_owners=excluded_owners,
         )
     elif report_id == 8:
         result = process_report8(
             worksheet, ownership_data, report_config, comment_stats,
+            excluded_owners=excluded_owners,
         )
     else:
         raise ValueError(f"不支持的报表编号: {report_id}")

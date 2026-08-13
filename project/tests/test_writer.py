@@ -87,6 +87,22 @@ class WriteReportFixedTests(unittest.TestCase):
         self.assertIsNone(template_sheet["K4"].value)
         self.assertEqual(template_sheet["H4"].value, "=F4/C4")
 
+    def test_excluded_owner_is_not_written(self):
+        template_sheet, source_sheet, source_book = self._make_workbooks()
+        source_sheet["C4"] = 99
+
+        written_rows = write_report_fixed(
+            template_sheet,
+            self.report_config,
+            {"权属A": {"workbook": source_book}},
+            self.config,
+            report_id=4,
+            excluded_owners={"权属A"},
+        )
+
+        self.assertEqual(written_rows, 0)
+        self.assertEqual(template_sheet["C4"].value, "模板旧值")
+
     def test_unconfigured_source_unit_is_warned_and_not_written(self):
         template_sheet, source_sheet, source_book = self._make_workbooks()
         source_sheet["C4"] = 10
