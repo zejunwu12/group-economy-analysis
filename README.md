@@ -443,3 +443,99 @@ python generate_next_template.py `
 ```yaml
 reports_to_run: [1, 4]
 ```
+
+### 8.6 使用实例1（2026Q2报表生成）
+
+将收集好的权属数据放入指定文件夹：`../权属数据/表格/`，统一文件名格式为`权属名称`。
+
+运行脚本：
+
+```powershell
+python .\project\main.py -q 2026Q2 -c .\project\config_2026Q1.yaml -t .\（写上企业名称）2026年第二季度资产运营情况表（空）.xlsx
+```
+
+- `-q`：生成报表季度。
+- `-c`：配置文件路径，由于当前未明确Q2配置，故使用上季度配置文件。
+- `-t`：模板路径，可由上季度报表通过`generate_next_template.py`生成。
+
+![image-20260814090839972](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814090840376.png)
+
+运行正常，但提示需进一步查看日志文件。
+
+查看运行结果摘要：
+
+1、文件加载情况：缺少集团本部的文件。
+
+![image-20260814093229393](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814093229534.png)	
+
+=》没有集团文件，跳过。
+
+2、格式检查：
+
+- 古城、商业缺少表7`园区`，无需理会。
+- 古城表8多一列，商业表1多一列，需要查看并删除多余列。
+
+![image-20260814093429083](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814093429180.png)	
+
+=》删除古城表8多余列`分组`，商业表1多余列`2025年3月31日房产面积（㎡）`。
+
+3、写入情况：跳过。
+
+![image-20260814094332794](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814094332865.png)	
+
+4、条目变化：新增4项，表1、2、4、6，酒管增加单位泉旅酒馆。
+
+![image-20260814094700391](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814094700461.png)	
+
+=》需手动修改Q2配置文件与模板。
+
+<img src="https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814100203544.png" alt="image-20260814100203471" style="zoom:50%;" />	<img src="https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814100243281.png" alt="image-20260814100243212" style="zoom:50%;" />
+
+<img src="https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814100636878.png" alt="image-20260814100550490" style="zoom:67%;" />	
+
+5、汇总行校验：如有报错，需根据提示检查、修改模板公式。
+
+![image-20260814101018512](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814101018590.png)	
+
+6、完整性检查：表2、4、6，缺失集团数据。
+
+![image-20260814101136342](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814101136445.png)	
+
+7、批注情况：查看本次批注，也会自动复制到结果表中。
+
+![image-20260814101253930](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814101254000.png)	
+
+修改后，再次运行脚本：
+
+```powershell
+python .\project\main.py -q 2026Q2 -c .\project\config_2026Q2.yaml -t .\2026Q2修改模板.xlsx
+```
+
+- `-c`、`-t`：需指定修改后的文件，若不匹配会报错。
+
+![image-20260814102550811](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814102550886.png)
+
+=》命令行输出显示均已正常，可直接检查结果文件，小问题手动调整下。
+
+### 8.7 使用实例2（2026Q3模板生成）
+
+运行脚本：
+
+```powershell
+python .\project\generate_next_template.py -q 2026Q2 -s .\（260709初稿）2026年第二季度资产运营情况表.xlsx -c .\project\config_2026Q2.yaml
+```
+
+- `-q`：当前季度，将生成下一季度模板。
+- `-s`：当前季度最终汇总表路径。
+- `-c`：当前季度配置文件。
+
+![image-20260814110133856](https://gucheng-wzj.oss-cn-shenzhen.aliyuncs.com/20260814110133959.png)
+
+=》输出有些过于简洁，但不影响。已正常生成下季度模板表，简单检查下。
+
+
+
+
+
+
+

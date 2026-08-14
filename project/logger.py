@@ -354,7 +354,7 @@ def log_processing_summary(
         detail.change_type == "removed" for detail in entry_change_details
     )
     active_logger.info(
-        f"[条目增减检测] 新增 {added_count} 项，减少 {removed_count} 项",
+        f"[条目增减检测] 权属表相对于配置/模板 新增 {added_count} 项，减少 {removed_count} 项",
         extra={_CONSOLE_RECORD_ATTR: True},
     )
     for change_number, detail in enumerate(entry_change_details, start=1):
